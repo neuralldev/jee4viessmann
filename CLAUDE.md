@@ -17,41 +17,55 @@ Jeedom (PHP)  ──socket TCP 127.0.0.1:55070──>  Démon Python (PyViCare)
 ```
 Détail complet dans `ARCHITECTURE.md`.
 
+> **Méthode démon/venv/deps calquée sur le plugin `jee4lm5`** : dépendances via le gestionnaire
+> natif Jeedom (`plugin_info/packages.json` → venv `resources/python_venv`), démon basé sur le
+> package pip **`jeedomdaemon`** (`BaseDaemon`). Plus de `install.sh`, plus de helper `jeedom.py` maison.
+> Tout le nommage est en **double-n** `jee4viessmann` (= id info.json, classe, repo GitHub, URLs callback).
+
 ## Carte des fichiers
-- `plugin_info/info.json` — id `jee4viessman`, `require 4.6`, `hasOwnDeamon`, `hasDependency`.
+- `plugin_info/info.json` — id `jee4viessmann`, `require 4.6`, `hasOwnDeamon`, `hasDependency`, `maxDependancyInstallTime 60`.
+- `plugin_info/packages.json` — **dépendances** gérées nativement par Jeedom : `apt python3-pip` + `pip3`
+  (`jeedomdaemon`, `PyViCare`, `authlib`, `deprecated`, `requests` + transitifs). Jeedom crée et peuple
+  `resources/python_venv` tout seul.
 - `plugin_info/install.php` — hooks install/update/remove (relance démon).
-- `core/class/jee4viessman.class.php` — **cœur PHP** :
-  - dépendances : `dependancy_info` / `dependancy_install` (venv via `resources/install.sh`).
-  - démon : `deamon_info` (pid + `posix_kill`), `deamon_start` (lance le venv python + args), `deamon_stop`.
-  - PHP→démon : `sendToDaemon()` (socket), `syncDaemonConfig()` (envoie identifiants déchiffrés).
+- `core/class/jee4viessmann.class.php` — **cœur PHP** :
+  - constantes `PLUGINNAME='jee4viessmann'`, `JEEDOM_DAEMON_PORT=55070`.
+  - démon : `deamon_info` (pid + `posix_getsid`), `deamon_start` (venv `python_venv`, `fuser -k`, args
+    BaseConfig), `deamon_stop` (SIGTERM puis SIGKILL), `backupExclude` (exclut `resources/python_venv`).
+    Pas de `dependancy_info/install` (gérés par `packages.json`).
+  - PHP→démon : `sendToDaemon()` (socket, ajoute `apikey`), `syncDaemonConfig()` (identifiants déchiffrés).
   - démon→PHP : `pushData()` crée les commandes manquantes **depuis le typage reçu** puis `checkAndUpdateCmd`.
   - sécurité : `preSave()` chiffre `password` (`utils::encrypt`, idempotent préfixe `crypt:`).
-  - `jee4viessmanCmd::execute()` → `sendToDaemon({type:action})`.
-- `core/php/jee4viessman.php` — callback HTTP : valide apikey (`jeedom::apiAccess`) → `pushData()`.
-- `desktop/php/jee4viessman.php` — page config réduite (clientId, email, password) + onglet commandes auto.
-- `desktop/js/jee4viessman.js` — rendu d'une ligne de commande.
-- `resources/jee4viessmand/jee4viessmand.py` — **démon** (argparse, signal, socket, poll, PyViCare).
-- `resources/jee4viessmand/jeedom/jeedom.py` — **helper Python 3 maison** (jeedom_com HTTP, jeedom_socket TCP, jeedom_utils). ⚠️ NE PAS remplacer par le template historique : il est en Python 2.
-- `resources/requirements.txt` — `PyViCare`, `requests`.
+  - `jee4viessmannCmd::execute()` → `sendToDaemon({type:action})`.
+- `core/php/jee4viessmann.php` — callback HTTP : valide apikey, ACK `?test=1` (exigé par jeedomdaemon) → `pushData()`.
+- `desktop/php/jee4viessmann.php` — page config réduite (clientId, email, password) + onglet commandes auto.
+- `desktop/js/jee4viessmann.js` — rendu d'une ligne de commande.
+- `resources/jee4viessmannd/jee4viessmannd.py` — **démon** : hérite de `jeedomdaemon.BaseDaemon`
+  (`on_start/on_message/on_stop`, `send_to_jeedom`, `run()`). PyViCare (bloquant) déporté via
+  `run_in_executor`. Config étendue `JeeConfig(BaseConfig)` pour l'arg `--cyclepoll`.
+- `resources/requirements-----.txt` — **référence uniquement** (non utilisé à l'install, deps via packages.json).
 
 ## Conventions
-- Classe eqLogic = `jee4viessman`, classe cmd = `jee4viessmanCmd` (doit matcher l'id du plugin).
+- Classe eqLogic = `jee4viessmann`, classe cmd = `jee4viessmannCmd` (doit matcher l'id du plugin, double-n).
 - Identifiants sensibles chiffrés via `utils::encrypt`/`decrypt` (jamais en clair en base).
 - `logicalId` des commandes auto = `sanitize_logical_id(feature, property)` (a-z0-9 + `_`).
 - Mapping typage : `number→numeric`, `boolean→binary` (valeur 0/1), `string→string`. array/Schedule ignorés (POC).
+- Tout message PHP→démon sur le socket porte `apikey` (vérifié par `BaseDaemon`).
 
 ## Commandes utiles
 ```bash
 # Lint / compile (depuis la racine du plugin)
-php -l core/class/jee4viessman.class.php
-python3 -m py_compile resources/jee4viessmand/jee4viessmand.py resources/jee4viessmand/jeedom/jeedom.py
+php -l core/class/jee4viessmann.class.php
+python3 -m py_compile resources/jee4viessmannd/jee4viessmannd.py
 
-# Démon en local (debug, hors Jeedom)
-resources/venv/bin/python3 resources/jee4viessmand/jee4viessmand.py --loglevel debug --socketport 55070 \
-  --callback "http://127.0.0.1/plugins/jee4viessman/core/php/jee4viessman.php" --apikey TEST --cyclepoll 30
+# Démon en local (debug, hors Jeedom) — nécessite jeedomdaemon + PyViCare dans le python utilisé
+resources/python_venv/bin/python3 resources/jee4viessmannd/jee4viessmannd.py --loglevel debug \
+  --socketport 55070 --apikey TEST --cyclepoll 30 --pid /tmp/jee4viessmannd.pid \
+  --callback "http://127.0.0.1/plugins/jee4viessmann/core/php/jee4viessmann.php"
 ```
-Dans Jeedom (conteneur) : installer les dépendances (onglet santé/dépendances), activer le plugin, créer
-un équipement avec les identifiants. Logs : `jee4viessman` (PHP) et `jee4viessmand` (démon).
+Dans Jeedom (conteneur) : installer les dépendances (onglet santé/dépendances — Jeedom lit `packages.json`
+et crée `resources/python_venv`), activer le plugin, créer un équipement avec les identifiants.
+Logs : `jee4viessmann` (PHP) et `jee4viessmannd` (démon).
 
 ## État (POC compilable, NON testé sur device réel)
 Fait : structure plugin, plomberie PHP↔Python, auth/découverte PyViCare, polling + génération des

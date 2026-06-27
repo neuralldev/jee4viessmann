@@ -16,24 +16,24 @@
  * along with Jeedom. If not, see <http://www.gnu.org/licenses/>.
  */
 
-// Point d'entrée du callback démon -> PHP.
-// Le démon POST un JSON {apikey, eqLogicId, commands:[...]} ; on crée/MAJ les commandes.
+// Point d'entrée du callback démon -> PHP (socle jeedomdaemon).
+// - le démon teste le callback au démarrage : GET ?test=1&apikey=...  -> on répond 'OK'
+// - puis il POST un JSON {eqLogicId, commands:[...]} (apikey en query ?apikey=...)
 
 require_once __DIR__ . '/../../../../core/php/core.inc.php';
 
 try {
     if (!jeedom::apiAccess(init('apikey'), 'jee4viessmann')) {
-        // L'apikey peut aussi arriver dans le corps JSON.
-        $raw = file_get_contents('php://input');
-        $data = json_decode($raw, true);
-        if (!is_array($data) || !isset($data['apikey']) || !jeedom::apiAccess($data['apikey'], 'jee4viessmann')) {
-            throw new Exception(__('Clé API non valide', __FILE__));
-        }
-    } else {
-        $raw = file_get_contents('php://input');
-        $data = json_decode($raw, true);
+        throw new Exception(__('Clé API non valide', __FILE__));
     }
 
+    // Test de connectivité émis par le démon au démarrage.
+    if (init('test') != '') {
+        echo 'OK';
+        die();
+    }
+
+    $data = json_decode(file_get_contents('php://input'), true);
     if (!is_array($data)) {
         throw new Exception(__('Charge utile invalide', __FILE__));
     }

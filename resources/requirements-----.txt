@@ -1,2 +1,8 @@
-PyViCare>=2.35
+# Référence uniquement — les dépendances sont installées par Jeedom via plugin_info/packages.json
+# (gestionnaire natif : apt python3-pip + pip3 dans resources/python_venv).
+# Ce fichier n'est PAS utilisé à l'installation ; il documente la pile attendue.
+jeedomdaemon>=1.2.9
+PyViCare>=2.60
+authlib>1.2.0
+deprecated>=1.2.15,<2.0.0
 requests>=2.31

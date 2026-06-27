@@ -1,0 +1,30 @@
+{
+    "pre-install": {
+    },
+    "apt": {
+        "python3-pip": {}
+    },
+    "pip3": {
+        "jeedomdaemon": {},
+        "PyViCare": {},
+        "authlib": {},
+        "deprecated": {},
+        "wrapt": {},
+        "requests": {},
+        "cryptography": {},
+        "cffi": {},
+        "pycparser": {},
+        "charset-normalizer": {},
+        "idna": {},
+        "urllib3": {},
+        "certifi": {},
+        "aiohttp": {},
+        "aiohappyeyeballs": {},
+        "aiosignal": {},
+        "attrs": {},
+        "frozenlist": {},
+        "multidict": {},
+        "propcache": {},
+        "yarl": {}
+    }
+}

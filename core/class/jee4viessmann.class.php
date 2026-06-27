@@ -27,44 +27,32 @@ require_once __DIR__ . '/../../../../core/php/core.inc.php';
  */
 class jee4viessmann extends eqLogic
 {
-    /* ============================ Dépendances ============================ */
-
-    public static function dependancy_info()
-    {
-        $return = array();
-        $return['log'] = 'jee4viessmann_dep';
-        $return['progress_file'] = jeedom::getTmpFolder('jee4viessmann') . '/dependance';
-        $return['state'] = file_exists(__DIR__ . '/../../resources/venv/bin/python3') ? 'ok' : 'nok';
-        return $return;
-    }
-
-    public static function dependancy_install()
-    {
-        log::remove('jee4viessmann_dep');
-        return array(
-            'script' => __DIR__ . '/../../resources/install.sh ' . jeedom::getTmpFolder('jee4viessmann') . '/dependance',
-            'log' => log::getPathToLog('jee4viessmann_dep'),
-        );
-    }
+    /* Constantes plugin (cf. jee4lm5) — id et port socket dédié du démon. */
+    const PLUGINNAME = 'jee4viessmann';
+    const JEEDOM_DAEMON_PORT = 55070;
 
     /* ============================ Démon ============================ */
+    /* Les dépendances sont gérées nativement par Jeedom via plugin_info/packages.json
+       (apt python3-pip + pip3 dans resources/python_venv). Pas de dependancy_info/install
+       ni de install.sh : Jeedom crée et peuple le venv tout seul. */
 
     public static function deamon_info()
     {
-        $return = array();
-        $return['log'] = 'jee4viessmannd';
-        $return['state'] = 'nok';
-        $pidFile = jeedom::getTmpFolder('jee4viessmann') . '/deamon.pid';
+        $return = array('log' => self::PLUGINNAME . 'd', 'launchable' => 'ok', 'state' => 'nok');
+        $pidFile = jeedom::getTmpFolder(self::PLUGINNAME) . '/' . self::PLUGINNAME . 'd.pid';
         if (file_exists($pidFile)) {
-            $pid = trim(file_get_contents($pidFile));
-            if ($pid !== '' && @posix_kill((int) $pid, 0)) {
+            $pid = intval(trim(file_get_contents($pidFile)));
+            $isRunning = false;
+            if ($pid > 0) {
+                if (function_exists('posix_getsid')) {
+                    $isRunning = (posix_getsid($pid) !== false);
+                } else {
+                    $isRunning = file_exists('/proc/' . $pid);
+                }
+            }
+            if ($isRunning) {
                 $return['state'] = 'ok';
             }
-        }
-        $return['launchable'] = 'ok';
-        if (self::dependancy_info()['state'] != 'ok') {
-            $return['launchable'] = 'nok';
-            $return['launchable_message'] = __('Dépendances non installées', __FILE__);
         }
         return $return;
     }
@@ -72,46 +60,77 @@ class jee4viessmann extends eqLogic
     public static function deamon_start()
     {
         self::deamon_stop();
+
+        // Nettoie un éventuel processus résiduel sur le port du démon.
+        exec('fuser -k ' . self::JEEDOM_DAEMON_PORT . '/tcp 2>/dev/null');
+        sleep(1);
+
         $info = self::deamon_info();
         if ($info['launchable'] != 'ok') {
-            throw new Exception(__('Le démon n\'est pas démarrable, vérifiez la configuration', __FILE__));
+            log::add(self::PLUGINNAME, 'error', __('Le démon n\'est pas démarrable', __FILE__) . ' : ' . $info['launchable']);
+            return false;
         }
 
-        $python = realpath(__DIR__ . '/../../resources/venv/bin/python3');
-        $script = realpath(__DIR__ . '/../../resources/jee4viessmannd/jee4viessmannd.py');
-        $pidFile = jeedom::getTmpFolder('jee4viessmann') . '/deamon.pid';
+        $path = realpath(__DIR__ . '/../../resources');
+        $python = $path . '/python_venv/bin/python3';
+        $script = $path . '/' . self::PLUGINNAME . 'd/' . self::PLUGINNAME . 'd.py';
+        $pidFile = jeedom::getTmpFolder(self::PLUGINNAME) . '/' . self::PLUGINNAME . 'd.pid';
 
         $cmd = $python . ' ' . $script;
-        $cmd .= ' --loglevel ' . log::convertLogLevel(log::getLogLevel('jee4viessmannd'));
-        $cmd .= ' --socketport ' . config::byKey('socketport', 'jee4viessmann', 55070);
-        $cmd .= ' --callback ' . network::getNetworkAccess('internal') . '/plugins/jee4viessmann/core/php/jee4viessmann.php';
-        $cmd .= ' --apikey ' . jeedom::getApiKey('jee4viessmann');
-        $cmd .= ' --cyclepoll ' . config::byKey('cyclePoll', 'jee4viessmann', 120);
+        $cmd .= ' --loglevel ' . log::convertLogLevel(log::getLogLevel(self::PLUGINNAME . 'd'));
+        $cmd .= ' --socketport ' . self::JEEDOM_DAEMON_PORT;
+        $cmd .= ' --apikey ' . jeedom::getApiKey(self::PLUGINNAME);
+        $cmd .= ' --cyclepoll ' . config::byKey('cyclePoll', self::PLUGINNAME, 120);
         $cmd .= ' --pid ' . $pidFile;
 
-        log::add('jee4viessmann', 'info', 'Lancement du démon : ' . $cmd);
-        $result = exec(system::getCmdSudo() . 'nohup ' . $cmd . ' >> ' . log::getPathToLog('jee4viessmannd') . ' 2>&1 &');
+        $callback = network::getNetworkAccess('internal', 'proto:127.0.0.1:port:comp');
+        if (empty($callback)) {
+            $callback = 'http://127.0.0.1:80';
+            log::add(self::PLUGINNAME, 'warning', 'network internal non configuré, fallback 127.0.0.1');
+        }
+        $cmd .= ' --callback ' . $callback . '/plugins/' . self::PLUGINNAME . '/core/php/' . self::PLUGINNAME . '.php';
+
+        log::add(self::PLUGINNAME, 'info', 'Lancement du démon : ' . $cmd);
+        $result = exec($cmd . ' >> ' . log::getPathToLog(self::PLUGINNAME . 'd') . ' 2>&1 &');
+        log::add(self::PLUGINNAME, 'debug', 'exec result=' . $result);
 
         // Laisse au démon le temps d'ouvrir son socket, puis pousse la configuration.
-        for ($i = 1; $i <= 20; $i++) {
+        $i = 0;
+        while ($i < 20) {
             if (self::deamon_info()['state'] == 'ok') {
                 break;
             }
             sleep(1);
+            $i++;
         }
+        if ($i >= 20) {
+            log::add(self::PLUGINNAME, 'error', __('Impossible de lancer le démon, vérifiez le log', __FILE__), 'unableStartDeamon');
+            return false;
+        }
+        message::removeAll(self::PLUGINNAME, 'unableStartDeamon');
         self::syncDaemonConfig();
+        return true;
     }
 
     public static function deamon_stop()
     {
-        $pidFile = jeedom::getTmpFolder('jee4viessmann') . '/deamon.pid';
+        $pidFile = jeedom::getTmpFolder(self::PLUGINNAME) . '/' . self::PLUGINNAME . 'd.pid';
         if (file_exists($pidFile)) {
-            $pid = trim(file_get_contents($pidFile));
-            if ($pid !== '') {
-                @posix_kill((int) $pid, SIGTERM);
+            $pid = intval(trim(file_get_contents($pidFile)));
+            if ($pid > 0) {
+                exec('kill -SIGTERM ' . $pid . ' 2>&1');
+                sleep(1);
+                if (file_exists('/proc/' . $pid)) {
+                    exec('kill -SIGKILL ' . $pid . ' 2>&1');
+                }
             }
             @unlink($pidFile);
         }
+    }
+
+    public static function backupExclude()
+    {
+        return array('resources/python_venv');
     }
 
     /* ============================ PHP -> démon (socket) ============================ */
@@ -122,7 +141,8 @@ class jee4viessmann extends eqLogic
             log::add('jee4viessmann', 'debug', 'Démon arrêté, message ignoré');
             return;
         }
-        $port = config::byKey('socketport', 'jee4viessmann', 55070);
+        $port = self::JEEDOM_DAEMON_PORT;
+        $message['apikey'] = jeedom::getApiKey(self::PLUGINNAME);
         $payload = json_encode($message);
         $socket = socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
         if ($socket === false) {
