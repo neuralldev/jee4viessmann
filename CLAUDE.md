@@ -48,7 +48,10 @@ actives devient un eqLogic auto-créé (`isDevice=1`, clé `gatewaySerial_device
 - `desktop/js/jee4viessmann.js` — rendu d'une ligne de commande.
 - `core/template/{dashboard,mobile}/cmd.info.numeric.thermometre.html` — **widget graphique**
   « thermomètre » (jauge verticale colorée bleu→rouge) pour commande info numérique ; sélectionnable
-  à la main, **auto-assigné** aux températures du ballon tampon (plage de la jauge via `#min#`/`#max#`).
+  à la main, **auto-assigné** aux températures du ballon tampon (plage via `#minValue#`/`#maxValue#`).
+- `core/template/{dashboard,mobile}/circuit.html` — **carte « circuit chauffage »** (cadran thermostat
+  pilotable : consigne, programme segmenté, mode, départ, pompe). Injectée dans `#cmd#` par la surcharge
+  `jee4viessmann::toHtml()` (groupe `circuits` seulement, sinon rendu par défaut). Mock de réf : `docs/mockups/`.
 - `resources/jee4viessmannd/jee4viessmannd.py` — **démon** : hérite de `jeedomdaemon.BaseDaemon`
   (`on_start/on_message/on_stop`, `send_to_jeedom`, `run()`). PyViCare (bloquant) déporté via
   `run_in_executor`. Config étendue `JeeConfig(BaseConfig)` pour l'arg `--cyclepoll`.
@@ -85,9 +88,11 @@ via `service.setProperty(feature, action, {param: value})`.
 
 ## TODO (par priorité)
 1. Actions multi-paramètres (setCurve slope+shift, setSchedule) — actuellement ignorées (POC).
-2. Sélecteur de programme synthétique (1 widget au lieu de 4 boutons activate) — optionnel.
+2. ~~Sélecteur de programme synthétique~~ → fait via la **carte circuit** (`circuit.html` + `toHtml`).
 3. Cosmétique : `seconds → h`. ECS / autres circuits quand activés.
 4. Tests : démarrage démon en conteneur sans device, puis avec compte Viessmann réel.
+5. **Valider en conteneur** les widgets thermomètre + carte circuit (rendu/live/actions) sur un vrai circuit :
+   noms réels des features (room/supply, programmes, modes) à confronter aux regex de `buildCircuitCard`.
 
 ## Gotchas
 - Commandes d'action : générées depuis `commands[].params` (1 num min/max→slider, 1 enum→select,
@@ -99,9 +104,18 @@ via `service.setProperty(feature, action, {param: value})`.
 - `applyCommands` rafraîchit nom/unité/ordre/generic_type/type/**subType**/**visibilité** à chaque cycle
   (propagation des règles sans recréer) ; seule l'**historisation** est posée à la création.
 - Widget « thermomètre » : le démon émet `template`+`min`/`max` (group `tampon`, unité `°C`), `applyCommands`
-  pose `setTemplate('dashboard'/'mobile', ...)` + `configuration.minValue/maxValue` (placeholders `#min#`/`#max#`).
-  Le template est **autonome** (CSS inline + JS) ; un `MutationObserver` sur `.cmdValue` re-rend la jauge à
-  chaque mise à jour live de Jeedom (pas besoin de hook côté core). Garde `data-jee4vInit` = anti double-init.
+  pose `setTemplate('dashboard'/'mobile', ...)` + `configuration.minValue/maxValue` (placeholders `#minValue#`/`#maxValue#`).
+- **Mises à jour live (CRUCIAL)** : le core ne réécrit PAS `.cmdValue` tout seul. À chaque event `cmd::update`,
+  `jeedom.cmd.refreshValue()` appelle uniquement les fonctions enregistrées via `jeedom.cmd.addUpdateFunction(id, fn)`
+  (cf. `core/js/cmd.class.js`/`jeedom.class.js` du core local `/Users/thierrygluzman/Documents/core`). Tout widget
+  custom DOIT s'abonner ainsi (pas de MutationObserver). `_options` = `{cmd_id,value,display_value,unit,valueDate,...}`.
+  Seed initial : appeler `jeedom.cmd.refreshValue([...])` (cmd) ou rendre depuis `cfg.init` (carte circuit).
+- Widget « circuit » (`toHtml`) : réutilise le wrapper core (`getTemplate('core',$v,'eqLogic')`) et n'injecte la
+  carte que dans `#cmd#` (`#calledFrom#='eqLogic'`, `#eqLogic_class#='eqLogic_layout_default'`). `buildCircuitCard()`
+  résout les commandes par regex sur logicalId (info) et `configuration.feature/action` (actions), groupe par index
+  de circuit, sérialise un `cfg` JSON dans `data-cfg`. Actions pilotées via `jeedom.cmd.execute({id,options:{slider|select}})`.
+  Programme « normal » (sans `activate`) → on `deactivate` le programme actif. `try/catch`→`parent::toHtml` (jamais de
+  tuile cassée). `{{}}` interdits dans la carte (non traduits hors `cmd::toHtml`) ; le thermomètre les garde (rendu par cmd).
 - Actions liées à leur info via `setValue` (`LINK_PROP`) → le widget slider/select affiche la valeur courante.
   `activate`/`deactivate` forcés en **boutons** (sinon slider si l'API expose un param température optionnel).
 - Quota : `PyViCareRateLimitError.limitResetDate` → `_paused_until` met le polling en pause jusqu'au reset

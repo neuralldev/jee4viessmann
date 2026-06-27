@@ -376,6 +376,209 @@ class jee4viessmann extends eqLogic
         }
     }
 
+    /* ============================ Widget circuit ============================ */
+    /* Pour le sous-équipement « Circuits chauffage » (group=circuits), on remplace le rendu
+       par défaut (liste de commandes) par une carte graphique pilotable (cadran thermostat).
+       On réutilise le wrapper eqLogic du core (drag/menu/refresh) et on n'injecte que la carte
+       dans #cmd#. Tout échec retombe sur le rendu standard (jamais de tuile cassée). */
+
+    /* Libellé + icône FR par programme de chauffe. */
+    private static $PROG_META = array(
+        'reduced' => array('Réduit', '🌙'),
+        'normal'  => array('Normal', '☀️'),
+        'comfort' => array('Confort', '🔥'),
+        'eco'     => array('Éco', '🌿'),
+        'fixed'   => array('Fixe', '🔒'),
+        'standby' => array('Veille', '⏻'),
+    );
+    private static $PROG_ORDER = array('reduced', 'normal', 'comfort', 'eco', 'fixed', 'standby');
+    private static $MODE_FR = array(
+        'standby' => 'Veille', 'heating' => 'Chauffage', 'dhw' => 'ECS',
+        'dhwAndHeating' => 'ECS + Chauffage', 'cooling' => 'Rafraîchissement',
+        'heatingCooling' => 'Chauffage + Rafraîchissement', 'normalStandby' => 'Veille',
+    );
+
+    public function toHtml($_version = 'dashboard')
+    {
+        if ($this->getConfiguration('group', '') !== 'circuits') {
+            return parent::toHtml($_version);
+        }
+        try {
+            $version = jeedom::versionAlias($_version);
+            $cards = $this->renderCircuitCards($version);
+            if ($cards === '') {
+                return parent::toHtml($_version);
+            }
+            $replace = $this->preToHtml($_version);
+            if (!is_array($replace)) {
+                return $replace;
+            }
+            $replace['#calledFrom#'] = 'eqLogic';
+            $replace['#eqLogic_class#'] = 'eqLogic_layout_default';
+            $replace['#cmd#'] = $cards;
+            $tpl = getTemplate('core', $version, 'eqLogic');
+            return $this->postToHtml($_version, template_replace($replace, $tpl));
+        } catch (\Throwable $e) {
+            log::add('jee4viessmann', 'warning', 'widget circuit toHtml: ' . $e->getMessage());
+            return parent::toHtml($_version);
+        }
+    }
+
+    /* Concatène une carte par index de circuit présent dans l'équipement. */
+    private function renderCircuitCards($version)
+    {
+        $tpl = getTemplate('core', $version, 'circuit', self::PLUGINNAME);
+        if ($tpl === '' || $tpl === null) {
+            return '';
+        }
+        $byIdx = array();
+        foreach (cmd::byEqLogicId($this->getId()) as $cmd) {
+            if (preg_match('/^heating_circuits_(\d+)_/', $cmd->getLogicalId(), $m)) {
+                $byIdx[(int) $m[1]][] = $cmd;
+            }
+        }
+        if (empty($byIdx)) {
+            return '';
+        }
+        ksort($byIdx);
+        $html = '';
+        foreach ($byIdx as $idx => $list) {
+            $replace = $this->buildCircuitCard($idx, $list);
+            if (is_array($replace)) {
+                $html .= template_replace($replace, $tpl);
+            }
+        }
+        return $html;
+    }
+
+    /* Construit les placeholders d'une carte (cfg JSON + segments + bloc mode) pour un circuit.
+       Retourne null si le circuit n'a aucun élément pilotable/affichable. */
+    private function buildCircuitCard($idx, $cmds)
+    {
+        $cfg = array(
+            'min' => 10, 'max' => 30, 'active' => 'normal',
+            'activeCmd' => null, 'modeCmd' => null, 'modeInfoCmd' => null,
+            'modeStandby' => null, 'modeOn' => null,
+            'roomCmd' => null, 'supplyCmd' => null, 'pumpCmd' => null,
+            'programs' => array(), 'init' => array(),
+        );
+        $modeEnum = array();
+        $haveRange = false;
+
+        foreach ($cmds as $cmd) {
+            $lid = $cmd->getLogicalId();
+            $id = (int) $cmd->getId();
+            $isAction = ($cmd->getType() === 'action');
+            $action = $cmd->getConfiguration('action', '');
+            $feature = $cmd->getConfiguration('feature', '');
+
+            // ---- commandes info (valeurs affichées) ----
+            if (!$isAction) {
+                $cfg['init'][$id] = $cmd->execCmd();
+                if (preg_match('/_sensors_temperature_supply_value$/', $lid)) {
+                    $cfg['supplyCmd'] = $id;
+                } elseif (preg_match('/_sensors_temperature_room_value$/', $lid)
+                    || preg_match('/^heating_circuits_' . $idx . '_temperature_value$/', $lid)) {
+                    $cfg['roomCmd'] = $id;
+                } elseif (preg_match('/_operating_programs_active_value$/', $lid)) {
+                    $cfg['activeCmd'] = $id;
+                } elseif (preg_match('/_operating_modes_active_value$/', $lid)) {
+                    $cfg['modeInfoCmd'] = $id;
+                } elseif (preg_match('/_circulation_pump_status$/', $lid)) {
+                    $cfg['pumpCmd'] = $id;
+                } elseif (preg_match('/_operating_programs_([a-z0-9]+)_temperature$/', $lid, $mm)) {
+                    $p = strtolower($mm[1]);
+                    $cfg['programs'][$p]['tempCmd'] = $id;
+                    $cfg['programs'][$p]['temp'] = is_numeric($cfg['init'][$id]) ? 0 + $cfg['init'][$id] : null;
+                }
+                continue;
+            }
+
+            // ---- commandes action (pilotage) ----
+            if ($action === 'setMode') {
+                $cfg['modeCmd'] = $id;
+                $lv = $cmd->getConfiguration('listValue', '');
+                foreach (explode(';', $lv) as $pair) {
+                    $v = explode('|', $pair);
+                    if ($v[0] !== '') {
+                        $modeEnum[] = $v[0];
+                    }
+                }
+            } elseif (preg_match('/operating\.programs\.([a-z0-9]+)/i', $feature, $mm)) {
+                $p = strtolower($mm[1]);
+                if ($action === 'setTemperature') {
+                    $cfg['programs'][$p]['setTempCmd'] = $id;
+                    $mn = $cmd->getConfiguration('minValue', '');
+                    $mx = $cmd->getConfiguration('maxValue', '');
+                    if ($mn !== '' && $mx !== '' && !$haveRange) {
+                        $cfg['min'] = 0 + $mn;
+                        $cfg['max'] = 0 + $mx;
+                        $haveRange = true;
+                    }
+                } elseif ($action === 'activate') {
+                    $cfg['programs'][$p]['activateCmd'] = $id;
+                } elseif ($action === 'deactivate') {
+                    $cfg['programs'][$p]['deactivateCmd'] = $id;
+                }
+            }
+        }
+
+        // Étiquettes des programmes + filtrage (on garde ceux réellement exploitables).
+        $programs = array();
+        $segments = '';
+        $extras = array_diff(array_keys($cfg['programs']), self::$PROG_ORDER);
+        foreach (array_merge(self::$PROG_ORDER, $extras) as $p) {
+            if (!isset($cfg['programs'][$p])) {
+                continue;
+            }
+            $P = $cfg['programs'][$p];
+            if (!isset($P['setTempCmd']) && !isset($P['tempCmd']) && !isset($P['activateCmd'])) {
+                continue;
+            }
+            $meta = isset(self::$PROG_META[$p]) ? self::$PROG_META[$p] : array(ucfirst($p), '•');
+            $P['label'] = $meta[0];
+            $programs[$p] = $P;
+            $segments .= '<button type="button" data-prog="' . $p . '"><span class="i">'
+                . $meta[1] . '</span>' . $meta[0] . '</button>';
+        }
+        $cfg['programs'] = $programs;
+
+        // Rien d'exploitable -> pas de carte (rendu par défaut).
+        if (empty($programs) && $cfg['activeCmd'] === null && $cfg['supplyCmd'] === null) {
+            return null;
+        }
+        if (!isset($programs[$cfg['active']])) {
+            $keys = array_keys($programs);
+            $cfg['active'] = $keys ? $keys[0] : 'normal';
+        }
+
+        // Bloc mode (sélecteur) + détection veille/marche pour le bouton power.
+        $modeBlock = '';
+        if ($cfg['modeCmd'] !== null && !empty($modeEnum)) {
+            $opts = '';
+            foreach ($modeEnum as $v) {
+                $label = isset(self::$MODE_FR[$v]) ? self::$MODE_FR[$v] : $v;
+                $opts .= '<option value="' . htmlspecialchars($v, ENT_QUOTES) . '">' . htmlspecialchars($label, ENT_QUOTES) . '</option>';
+                if (stripos($v, 'standby') !== false) {
+                    $cfg['modeStandby'] = $v;
+                } elseif ($cfg['modeOn'] === null) {
+                    $cfg['modeOn'] = $v;
+                }
+            }
+            $modeBlock = '<div class="jee4v-mode"><label>Mode</label><select>' . $opts . '</select></div>';
+        }
+
+        $uid = 'jee4vcc' . $this->getId() . '_' . $idx . '_' . mt_rand();
+        $json = json_encode($cfg, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        return array(
+            '#uid#' => $uid,
+            '#title#' => 'Circuit ' . $idx,
+            '#segments#' => $segments,
+            '#mode_block#' => $modeBlock,
+            '#cfg#' => htmlspecialchars($json, ENT_QUOTES),
+        );
+    }
+
     /* ============================ Cycle de vie ============================ */
     /* Les identifiants sont désormais au niveau du plugin (config) — les eqLogic sont
        uniquement des devices auto-créés. Leur sauvegarde ne déclenche donc pas de re-sync. */

@@ -1,48 +1,48 @@
-<div class="cmd cmd-widget #history# #hideCmdName# tooltips" data-type="info" data-subtype="numeric"
-     data-cmd_id="#id#" data-cmd_uid="#uid#" data-version="#version#" data-eqlogic_id="#eqLogic_id#"
-     style="#style#;#hideCmd#">
-  <span class="title" style="display:block;text-align:center;">
-    <span class="cmdName">#name_display#</span>
-  </span>
-  <div id="jee4v-thermo-#uid#" class="jee4v-thermo" data-min="#min#" data-max="#max#"
-       style="display:flex;align-items:flex-end;justify-content:center;gap:8px;padding:6px 0;">
-    <div class="jee4v-thermo-tube" style="position:relative;width:18px;height:90px;border-radius:9px 9px 0 0;
-         border:2px solid #888;border-bottom:none;background:rgba(127,127,127,.15);overflow:hidden;">
-      <div class="jee4v-thermo-fill" style="position:absolute;bottom:0;left:0;right:0;height:0%;
+<div class="cmd cmd-widget jee4v-thermo #history#" data-type="info" data-subtype="numeric" data-template="thermometre"
+     data-cmd_id="#id#" data-cmd_uid="#uid#" data-version="#version#" data-eqLogic_id="#eqLogic_id#">
+  <div class="title #hide_name#"><div class="cmdName">#name_display#</div></div>
+  <div class="content" style="display:flex;align-items:flex-end;justify-content:center;gap:6px;padding:6px 0;">
+    <div style="position:relative;width:16px;height:80px;border:2px solid #888;border-bottom:none;
+         border-radius:8px 8px 0 0;overflow:hidden;background:rgba(127,127,127,.15);">
+      <div class="jee4v-fill" style="position:absolute;bottom:0;left:0;right:0;height:0;
            background:#3b82f6;transition:height .4s,background .4s;"></div>
     </div>
-    <div class="jee4v-thermo-bulb" style="width:26px;height:26px;border-radius:50%;border:2px solid #888;
-         margin-left:-22px;margin-bottom:-2px;background:#3b82f6;transition:background .4s;
-         position:relative;z-index:1;"></div>
-    <span style="font-size:1.4em;font-weight:600;margin-left:4px;">
-      <span class="cmdValue">#state#</span>#unite#
-    </span>
+    <div class="jee4v-bulb" style="width:22px;height:22px;border-radius:50%;border:2px solid #888;
+         margin-left:-20px;background:#3b82f6;transition:background .4s;"></div>
+    <div class="state" style="margin-left:6px;">
+      <span class="value" style="font-size:1.3em;font-weight:600;"></span> <span class="unit"></span>
+    </div>
   </div>
+  <div class="timeCmd label label-default #history#" data-type="info"></div>
+  <template>
+    <div>time : duration|date ({{Affiche durée ou date de la valeur}})</div>
+  </template>
   <script>
-  (function () {
-    var root = document.getElementById('jee4v-thermo-#uid#');
-    if (!root || root.dataset.jee4vInit) return;
-    root.dataset.jee4vInit = '1';
-    var fill = root.querySelector('.jee4v-thermo-fill');
-    var bulb = root.querySelector('.jee4v-thermo-bulb');
-    var valEl = root.querySelector('.cmdValue');
-    var min = parseFloat(root.dataset.min); if (isNaN(min)) min = 0;
-    var max = parseFloat(root.dataset.max); if (isNaN(max)) max = 80;
-    function color(p) {                       // p dans [0,1] : bleu froid -> rouge chaud
-      var hue = 220 - 220 * p;                // 220 (bleu) -> 0 (rouge)
-      return 'hsl(' + hue + ',75%,52%)';
-    }
-    function render() {
-      var t = parseFloat(String(valEl.textContent || '').replace(',', '.'));
-      if (isNaN(t)) return;
-      var p = Math.min(1, Math.max(0, (t - min) / (max - min)));
-      var c = color(p);
-      fill.style.height = (p * 100) + '%';
-      fill.style.background = c;
-      bulb.style.background = c;
-    }
-    render();
-    new MutationObserver(render).observe(valEl, { childList: true, characterData: true, subtree: true });
-  })();
+    jeedom.cmd.addUpdateFunction('#id#', function (_options) {
+      var cmd = document.querySelector('.cmd[data-cmd_uid="#uid#"]');
+      if (!is_object(cmd)) return;
+      cmd.querySelectorAll('.content, .state').forEach(function (e) {
+        e.setAttribute('title', '{{Date de valeur}}: ' + _options.valueDate + '<br>{{Date de collecte}}: ' + _options.collectDate)
+      })
+      if ('#time#' == 'duration' || '#time#' == 'date') {
+        jeedom.cmd.displayDuration(_options.valueDate, cmd.querySelector('.timeCmd'), '#time#')
+      }
+      if (is_numeric(_options.value)) {
+        var min = parseFloat('#minValue#'); if (isNaN(min)) min = 0;
+        var max = parseFloat('#maxValue#'); if (isNaN(max)) max = 80;
+        var p = Math.min(1, Math.max(0, (parseFloat(_options.value) - min) / (max - min)));
+        var col = 'hsl(' + (210 - 150 * p) + ',85%,52%)';   // bleu froid -> rouge chaud
+        cmd.querySelector('.jee4v-fill').style.height = (p * 100) + '%';
+        cmd.querySelector('.jee4v-fill').style.background = col;
+        cmd.querySelector('.jee4v-bulb').style.background = col;
+        cmd.querySelector('.value').innerHTML = _options.display_value;
+        cmd.querySelector('.unit').innerHTML = _options.unit;
+      } else {
+        cmd.querySelector('.value').innerHTML = '<span class="label label-danger">' + _options.value + '</span>';
+      }
+    })
+
+    jeedom.cmd.refreshValue([{ cmd_id: '#id#', value: '#value#', display_value: '#state#',
+      valueDate: '#valueDate#', collectDate: '#collectDate#', alertLevel: '#alertLevel#', unit: '#unite#' }])
   </script>
 </div>
