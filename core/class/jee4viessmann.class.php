@@ -275,25 +275,34 @@ class jee4viessmann extends eqLogic
             // Une commande en erreur ne doit pas faire échouer tout le lot (sinon 400 global).
             try {
                 $cmd = $eq->getCmd(null, $c['logicalId']);
-                if (!is_object($cmd)) {
+                $isNew = !is_object($cmd);
+                if ($isNew) {
                     // Création pilotée par le typage de l'API (pas de map manuel).
                     $cmd = new jee4viessmannCmd();
                     $cmd->setEqLogic_id($eq->getId());
                     $cmd->setLogicalId($c['logicalId']);
-                    $cmd->setName(isset($c['name']) ? $c['name'] : $c['logicalId']);
-                    $cmd->setIsVisible(array_key_exists('visible', $c) ? ((int) $c['visible']) : 1);
-                    $cmd->setIsHistorized(!empty($c['historized']) ? 1 : 0);
                     $cmd->setType(isset($c['cmdType']) ? $c['cmdType'] : 'info');
                     $cmd->setSubType(isset($c['subType']) ? $c['subType'] : 'string');
-                    if (!empty($c['unit'])) {
-                        $cmd->setUnite($c['unit']);
-                    }
-                    if (!empty($c['genericType'])) {
-                        $cmd->setGeneric_type($c['genericType']);
-                    }
-                    if (isset($c['order'])) {
-                        $cmd->setOrder((int) $c['order']);
-                    }
+                    // Visibilité/historisation : posées à la création seulement (respect des choix user ensuite).
+                    $cmd->setIsVisible(array_key_exists('visible', $c) ? ((int) $c['visible']) : 1);
+                    $cmd->setIsHistorized(!empty($c['historized']) ? 1 : 0);
+                }
+                // Métadonnées cosmétiques rafraîchies à chaque cycle (nom FR, unité, ordre, generic_type)
+                // pour propager les améliorations sans devoir recréer les équipements.
+                $name = isset($c['name']) ? $c['name'] : $c['logicalId'];
+                $unit = isset($c['unit']) ? $c['unit'] : '';
+                $gtype = isset($c['genericType']) ? $c['genericType'] : '';
+                $order = isset($c['order']) ? (int) $c['order'] : 0;
+                $changed = $isNew
+                    || $cmd->getName() != $name
+                    || $cmd->getUnite() != $unit
+                    || $cmd->getGeneric_type() != $gtype
+                    || (int) $cmd->getOrder() != $order;
+                if ($changed) {
+                    $cmd->setName($name);
+                    $cmd->setUnite($unit);
+                    $cmd->setGeneric_type($gtype);
+                    $cmd->setOrder($order);
                     $cmd->save();
                 }
                 if (($cmd->getType() == 'info') && array_key_exists('value', $c)) {
