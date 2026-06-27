@@ -30,6 +30,7 @@ import asyncio
 import logging
 import re
 import traceback
+from datetime import datetime, timedelta
 from typing import Optional
 
 from jeedomdaemon.base_daemon import BaseDaemon
@@ -162,7 +163,7 @@ TERM_FR = {
     "condensors": "condenseur", "condensor": "condenseur",
     "primarycircuit": "circuit primaire", "secondarycircuit": "circuit secondaire",
     "levels": "niveaux", "level": "niveau", "min": "min", "max": "max",
-    "heatingrod": "résistance d'appoint", "phase": "phase", "holiday": "vacances",
+    "heatingrod": "résistance appoint", "phase": "phase", "holiday": "vacances",
     "boiler": "chaudière", "controller": "régulateur", "serial": "n° série",
     "type": "type", "name": "nom", "status": "état",
     "wifi": "wifi", "strength": "signal", "bmuconnection": "connexion BMU",
@@ -188,6 +189,14 @@ COMMAND_FR = {
 }
 
 
+def clean_name(s: str) -> str:
+    """Retire les caractères spéciaux problématiques des noms (apostrophes, tirets longs, #...)
+       et normalise les espaces. On conserve lettres accentuées, chiffres et espaces."""
+    for ch in ("'", "’", "—", "–", "#", "|", ";"):
+        s = s.replace(ch, " ")
+    return re.sub(r"\s+", " ", s).strip()
+
+
 def sanitize_logical_id(feature: str, prop: str) -> str:
     raw = (feature + "." + prop).lower()
     return re.sub(r"[^a-z0-9]+", "_", raw).strip("_")
@@ -209,7 +218,7 @@ def humanize(feature: str, prop: str) -> str:
         fr = TERM_FR.get(seg.lower(), seg)
         if fr:
             out.append(fr)
-    label = " ".join(out).strip()
+    label = clean_name(" ".join(out))
     return (label[:1].upper() + label[1:]) if label else (prop or feature)
 
 
@@ -252,10 +261,10 @@ def feature_to_commands(feature_entry: dict) -> list:
 
 
 def action_name(feature: str, cmd_name: str) -> str:
-    """Libellé FR d'une commande d'action (feature + verbe traduit)."""
+    """Libellé FR d'une commande d'action (feature + verbe traduit, sans séparateur spécial)."""
     base = humanize(feature, "value")  # contexte sans propriété
     verb = COMMAND_FR.get(cmd_name.lower(), cmd_name)
-    return (base + " — " + verb).strip(" —")
+    return clean_name(base + " " + verb)
 
 
 def feature_to_actions(feature_entry: dict) -> list:
@@ -272,7 +281,14 @@ def feature_to_actions(feature_entry: dict) -> list:
     cmds = feature_entry.get("commands", {}) or {}
     group_key, group_label = classify(feature)
     for cname, cdef in cmds.items():
-        if not isinstance(cdef, dict) or not cdef.get("isExecutable", False):
+        if not isinstance(cdef, dict):
+            continue
+        # On NE filtre PAS sur 'isExecutable' : l'API ne le met à true que pour la commande
+        # pertinente selon l'état courant (ex. activate vs deactivate), ce qui rendrait l'ensemble
+        # des boutons instable d'un cycle à l'autre. On génère depuis la *définition* -> jeu de
+        # commandes stable ; une commande non pertinente à l'instant T renverra une erreur (gérée).
+        # Actions de planification (setSchedule/resetSchedule/unschedule) : inutiles sans agenda.
+        if "schedule" in cname.lower():
             continue
         params = cdef.get("params", {}) or {}
         common = {
@@ -314,7 +330,7 @@ def finalize_commands(commands: list) -> list:
         n = seen.get(base, 0) + 1
         seen[base] = n
         if n > 1:
-            c["name"] = "%s #%d" % (base, n)
+            c["name"] = "%s %d" % (base, n)
         c["order"] = i
     return commands
 
@@ -347,6 +363,8 @@ class Jee4Viessmann(BaseDaemon):
         self._account: Optional[dict] = None
         self._vicare = None           # instance PyViCare (porte tous les devices)
         self._poll_task: Optional[asyncio.Task] = None
+        self._paused_until: Optional[datetime] = None  # pause polling jusqu'à reset quota (UTC)
+        self._auth_backoff = 0        # backoff progressif sur échecs d'auth
 
     # ------------------------------------------------------------------ #
     #  Cycle de vie
@@ -410,6 +428,28 @@ class Jee4Viessmann(BaseDaemon):
             "online": device.isOnline(),
         }
 
+    def _handle_rate_limit(self, e) -> bool:
+        """Si l'exception est un dépassement de quota Viessmann, met le polling en pause
+           jusqu'au reset annoncé par l'API. Retourne True si c'était bien un rate-limit."""
+        if type(e).__name__ != "PyViCareRateLimitError":
+            return False
+        reset = getattr(e, "limitResetDate", None)
+        if not isinstance(reset, datetime):
+            reset = datetime.utcnow() + timedelta(hours=1)
+        self._paused_until = reset
+        self._vicare = None
+        self._logger.warning("quota API Viessmann atteint : polling en pause jusqu'à %s UTC", reset.isoformat())
+        return True
+
+    def _is_paused(self) -> bool:
+        if self._paused_until is None:
+            return False
+        if datetime.utcnow() >= self._paused_until:
+            self._logger.info("fin de pause quota, reprise du polling")
+            self._paused_until = None
+            return False
+        return True
+
     async def _ensure_session(self):
         if self._vicare is not None:
             return self._vicare
@@ -419,7 +459,10 @@ class Jee4Viessmann(BaseDaemon):
         try:
             vicare = await loop.run_in_executor(None, self._authenticate_blocking, self._account)
         except Exception as e:
-            self._logger.error("échec authentification : %s: %s", type(e).__name__, e)
+            if self._handle_rate_limit(e):
+                return None
+            self._auth_backoff = min(self._auth_backoff + 1, 6)
+            self._logger.error("échec authentification (#%d) : %s: %s", self._auth_backoff, type(e).__name__, e)
             # PyViCareInvalidCredentialsError est levée sans message quand l'IAM ne renvoie pas
             # de redirect 'Location' : soit identifiants erronés, soit (le plus souvent en migration
             # depuis le plugin v1) la redirect_uri du client n'est pas celle attendue par PyViCare.
@@ -429,7 +472,10 @@ class Jee4Viessmann(BaseDaemon):
                     "autorise la redirect_uri 'vicare://oauth-callback/everest' (le plugin v1 utilisait "
                     "'http://localhost:4200/', incompatible avec PyViCare).")
             self._logger.debug("trace auth :\n%s", traceback.format_exc())
+            # Backoff : repousse la prochaine tentative (multiples du cyclepoll).
+            self._paused_until = datetime.utcnow() + timedelta(seconds=self._config.cyclepoll * self._auth_backoff)
             return None
+        self._auth_backoff = 0
         if not getattr(vicare, "devices", None):
             self._logger.warning("aucun device supporté découvert")
             return None
@@ -438,56 +484,72 @@ class Jee4Viessmann(BaseDaemon):
         return vicare
 
     async def _poll_all(self) -> None:
+        if self._is_paused():
+            self._logger.debug("polling en pause (quota/backoff) jusqu'à %s UTC", self._paused_until.isoformat())
+            return
         vicare = await self._ensure_session()
         if vicare is None:
             return
-        loop = asyncio.get_running_loop()
         for device in vicare.devices:
-            ident = self._device_identity(device)
-            try:
-                features = await loop.run_in_executor(None, self._fetch_blocking, device)
-            except Exception as e:
-                self._logger.warning(
-                    "device %s : échec fetch_all_features (%s: %s), ré-auth au prochain cycle",
-                    ident["deviceId"], type(e).__name__, e)
-                self._logger.debug("trace fetch :\n%s", traceback.format_exc())
-                self._vicare = None
+            await self._poll_device(device)
+
+    async def _poll_device(self, device) -> None:
+        """Récupère les features d'un device, génère les commandes et les pousse à Jeedom."""
+        ident = self._device_identity(device)
+        loop = asyncio.get_running_loop()
+        try:
+            features = await loop.run_in_executor(None, self._fetch_blocking, device)
+        except Exception as e:
+            if self._handle_rate_limit(e):
                 return
-            commands = []
-            for entry in features.get("data", []):
-                commands.extend(feature_to_commands(entry))
-                commands.extend(feature_to_actions(entry))
-            if not commands:
-                self._logger.debug("device %s (%s) : aucune feature active, ignoré",
-                                   ident["deviceId"], ident["model"])
-                continue
-            # Regroupe par sous-système -> un eqLogic Jeedom par (device, groupe).
-            groups = {}
-            for c in commands:
-                groups.setdefault((c["group"], c["groupLabel"]), []).append(c)
-            self._logger.info("device %s (%s) : %d commandes actives, %d groupe(s)",
-                              ident["deviceId"], ident["model"], len(commands), len(groups))
-            for (gkey, glabel), gcmds in groups.items():
-                gcmds = finalize_commands(gcmds)  # noms uniques au sein de l'eqLogic
-                self._logger.info("  [%s] %s : %d commande(s)", gkey, glabel, len(gcmds))
-                for c in gcmds:
-                    if c.get("cmdType") == "action":
-                        self._logger.info("    ⚙ %s [%s %s]", c["name"], c["subType"], c.get("action", ""))
-                    else:
-                        vis = "" if c.get("visible") else " (masqué)"
-                        self._logger.info("    • %s = %s %s%s", c["name"], c.get("value", ""), c.get("unit", ""), vis)
-                await self.send_to_jeedom({
-                    "device": ident,
-                    "group": gkey,
-                    "groupLabel": glabel,
-                    "commands": gcmds,
-                })
+            self._logger.warning(
+                "device %s : échec fetch_all_features (%s: %s), ré-auth au prochain cycle",
+                ident["deviceId"], type(e).__name__, e)
+            self._logger.debug("trace fetch :\n%s", traceback.format_exc())
+            self._vicare = None
+            return
+        commands = []
+        for entry in features.get("data", []):
+            commands.extend(feature_to_commands(entry))
+            commands.extend(feature_to_actions(entry))
+        if not commands:
+            self._logger.debug("device %s (%s) : aucune feature active, ignoré",
+                               ident["deviceId"], ident["model"])
+            return
+        # Regroupe par sous-système -> un eqLogic Jeedom par (device, groupe).
+        groups = {}
+        for c in commands:
+            groups.setdefault((c["group"], c["groupLabel"]), []).append(c)
+        self._logger.info("device %s (%s) : %d commandes actives, %d groupe(s)",
+                          ident["deviceId"], ident["model"], len(commands), len(groups))
+        for (gkey, glabel), gcmds in groups.items():
+            gcmds = finalize_commands(gcmds)  # noms uniques au sein de l'eqLogic
+            self._logger.info("  [%s] %s : %d commande(s)", gkey, glabel, len(gcmds))
+            for c in gcmds:
+                if c.get("cmdType") == "action":
+                    self._logger.info("    ⚙ %s [%s %s]", c["name"], c["subType"], c.get("action", ""))
+                else:
+                    vis = "" if c.get("visible") else " (masqué)"
+                    self._logger.info("    • %s = %s %s%s", c["name"], c.get("value", ""), c.get("unit", ""), vis)
+            await self.send_to_jeedom({
+                "device": ident,
+                "group": gkey,
+                "groupLabel": glabel,
+                "commands": gcmds,
+            })
 
     async def _poll_loop(self) -> None:
         try:
             while True:
                 await asyncio.sleep(self._config.cyclepoll)
-                await self._poll_all()
+                try:
+                    await self._poll_all()
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    # Le démon ne doit jamais mourir sur une erreur de cycle.
+                    self._logger.error("erreur cycle de polling : %s: %s", type(e).__name__, e)
+                    self._logger.debug("trace cycle :\n%s", traceback.format_exc())
         except asyncio.CancelledError:
             self._logger.info("boucle de poll arrêtée")
 
@@ -527,15 +589,20 @@ class Jee4Viessmann(BaseDaemon):
         action = message.get("action")
         param = message.get("param") or ""
         value = message.get("value")
-        if self._vicare is None:
-            self._logger.warning("action %s.%s : pas de session active", feature, action)
-            return
-        device = self._find_device(self._vicare, ident)
-        if device is None:
-            self._logger.warning("action %s.%s : device %s introuvable", feature, action, ident.get("deviceId"))
-            return
         if not feature or not action:
             self._logger.warning("action incomplète : feature/action manquant (%s)", message)
+            return
+        if self._is_paused():
+            self._logger.warning("action %s.%s ignorée : quota API en pause jusqu'à %s UTC",
+                                 feature, action, self._paused_until.isoformat())
+            return
+        vicare = await self._ensure_session()
+        if vicare is None:
+            self._logger.warning("action %s.%s : pas de session active", feature, action)
+            return
+        device = self._find_device(vicare, ident)
+        if device is None:
+            self._logger.warning("action %s.%s : device %s introuvable", feature, action, ident.get("deviceId"))
             return
         data = {param: self._coerce(value)} if param else {}
         self._logger.info("action -> %s.%s %s", feature, action, data)
@@ -543,13 +610,15 @@ class Jee4Viessmann(BaseDaemon):
         try:
             await loop.run_in_executor(None, self._set_property_blocking, device, feature, action, data)
         except Exception as e:
+            if self._handle_rate_limit(e):
+                return
             self._logger.error("échec action %s.%s : %s: %s", feature, action, type(e).__name__, e)
             self._logger.debug("trace action :\n%s", traceback.format_exc())
             return
         self._logger.info("action %s.%s OK, rafraîchissement", feature, action)
-        # Rafraîchit les valeurs après la commande (l'API peut être asynchrone : valeur définitive
-        # au cycle suivant si "pending").
-        await self._poll_all()
+        # Rafraîchit uniquement le device concerné (économie de quota) ; l'API peut être
+        # asynchrone : la valeur définitive arrivera au cycle suivant si "pending".
+        await self._poll_device(device)
 
 
 if __name__ == "__main__":

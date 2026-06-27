@@ -90,6 +90,12 @@ via `service.setProperty(feature, action, {param: value})`.
 - Commandes d'action : générées depuis `commands[].params` (1 num min/max→slider, 1 enum→select,
   0 param→bouton) ; mapping d'exécution stocké en `configuration` de la cmd (feature/action/param) ;
   `jee4viessmannCmd::execute()` envoie la valeur (#slider#/#select#) au démon → `setProperty`.
+  On **ne filtre pas** sur `isExecutable` (l'API ne le met à true que pour la commande pertinente à
+  l'instant T → boutons instables) : génération depuis la *définition* (jeu stable, ex. activate+deactivate).
+- Noms : `clean_name()` retire apostrophes/tirets longs/`#`/`|`/`;` (sinon ennuis Jeedom) ; dédup ` N`.
+- Quota : `PyViCareRateLimitError.limitResetDate` → `_paused_until` met le polling en pause jusqu'au reset
+  (reprise auto). Backoff sur échec d'auth. Boucle de poll encapsulée (le démon ne meurt pas sur erreur).
+  Après une action, re-poll du **seul** device concerné (`_poll_device`) pour économiser le quota.
 - Le helper `jeedom.py` du template Jeedom historique est **Python 2** (`from Queue import Queue`,
   `import SocketServer`, `serial`, `pyudev`) → inutilisable en 3.13. Ici réécrit en Python 3.
 - `deamon_start` attend que le socket soit ouvert avant `syncDaemonConfig()`.
