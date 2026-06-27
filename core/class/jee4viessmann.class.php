@@ -210,16 +210,20 @@ class jee4viessmann extends eqLogic
      * dédié au device, puis on crée/MAJ ses commandes depuis le typage reçu.
      *
      * $payload = [
-     *   'device'   => ['installationId','gatewaySerial','deviceId','model','deviceType','online'],
-     *   'commands' => [ ['logicalId','name','cmdType','subType','unit','value'], ... ],
+     *   'device'     => ['installationId','gatewaySerial','deviceId','model','deviceType','online'],
+     *   'group'      => 'circuits', 'groupLabel' => 'Circuits chauffage',  // sous-système
+     *   'commands'   => [ ['logicalId','name','cmdType','subType','unit','visible','value'], ... ],
      * ]
+     * Un eqLogic est créé par couple (device, sous-système).
      */
     public static function pushData($payload)
     {
         if (empty($payload['device']) || !is_array($payload['device']) || !isset($payload['commands'])) {
             return;
         }
-        $eq = self::findOrCreateDeviceEq($payload['device']);
+        $group = isset($payload['group']) ? (string) $payload['group'] : 'general';
+        $groupLabel = isset($payload['groupLabel']) ? (string) $payload['groupLabel'] : 'Général';
+        $eq = self::findOrCreateDeviceEq($payload['device'], $group, $groupLabel);
         if (!is_object($eq)) {
             return;
         }
@@ -227,17 +231,17 @@ class jee4viessmann extends eqLogic
     }
 
     /**
-     * Retrouve (ou crée) l'eqLogic correspondant à un device viessmann.
-     * Clé stable : logicalId = sanitize("<gatewaySerial>_<deviceId>").
+     * Retrouve (ou crée) l'eqLogic correspondant à un (device, sous-système).
+     * Clé stable : logicalId = sanitize("<gatewaySerial>_<deviceId>_<group>").
      */
-    protected static function findOrCreateDeviceEq($device)
+    protected static function findOrCreateDeviceEq($device, $group, $groupLabel)
     {
         $gateway = isset($device['gatewaySerial']) ? (string) $device['gatewaySerial'] : '';
         $deviceId = isset($device['deviceId']) ? (string) $device['deviceId'] : '';
         if ($deviceId === '') {
             return null;
         }
-        $logicalId = preg_replace('/[^a-zA-Z0-9]+/', '_', $gateway . '_' . $deviceId);
+        $logicalId = preg_replace('/[^a-zA-Z0-9]+/', '_', $gateway . '_' . $deviceId . '_' . $group);
         $logicalId = trim($logicalId, '_');
 
         $eq = self::byLogicalId($logicalId, 'jee4viessmann');
@@ -246,16 +250,17 @@ class jee4viessmann extends eqLogic
             $eq = new jee4viessmann();
             $eq->setLogicalId($logicalId);
             $eq->setEqType_name('jee4viessmann');
-            $eq->setName($model . ' (' . $deviceId . ')');
+            $eq->setName($model . ' - ' . $groupLabel);
             $eq->setIsEnable(1);
             $eq->setIsVisible(1);
             $eq->setConfiguration('isDevice', 1);
+            $eq->setConfiguration('group', $group);
             $eq->setConfiguration('installationId', isset($device['installationId']) ? $device['installationId'] : '');
             $eq->setConfiguration('gatewaySerial', $gateway);
             $eq->setConfiguration('deviceId', $deviceId);
             $eq->setConfiguration('deviceType', isset($device['deviceType']) ? $device['deviceType'] : '');
             $eq->save();
-            log::add('jee4viessmann', 'info', 'Device créé : ' . $eq->getName());
+            log::add('jee4viessmann', 'info', 'Équipement créé : ' . $eq->getName());
         }
         return $eq;
     }
@@ -267,24 +272,35 @@ class jee4viessmann extends eqLogic
             if (!isset($c['logicalId'])) {
                 continue;
             }
-            $cmd = $eq->getCmd(null, $c['logicalId']);
-            if (!is_object($cmd)) {
-                // Création pilotée par le typage de l'API (pas de map manuel).
-                $cmd = new jee4viessmannCmd();
-                $cmd->setEqLogic_id($eq->getId());
-                $cmd->setLogicalId($c['logicalId']);
-                $cmd->setName(isset($c['name']) ? $c['name'] : $c['logicalId']);
-                $cmd->setIsVisible(1);
-                $cmd->setIsHistorized(!empty($c['historized']) ? 1 : 0);
-                $cmd->setType(isset($c['cmdType']) ? $c['cmdType'] : 'info');
-                $cmd->setSubType(isset($c['subType']) ? $c['subType'] : 'string');
-                if (!empty($c['unit'])) {
-                    $cmd->setUnite($c['unit']);
+            // Une commande en erreur ne doit pas faire échouer tout le lot (sinon 400 global).
+            try {
+                $cmd = $eq->getCmd(null, $c['logicalId']);
+                if (!is_object($cmd)) {
+                    // Création pilotée par le typage de l'API (pas de map manuel).
+                    $cmd = new jee4viessmannCmd();
+                    $cmd->setEqLogic_id($eq->getId());
+                    $cmd->setLogicalId($c['logicalId']);
+                    $cmd->setName(isset($c['name']) ? $c['name'] : $c['logicalId']);
+                    $cmd->setIsVisible(array_key_exists('visible', $c) ? ((int) $c['visible']) : 1);
+                    $cmd->setIsHistorized(!empty($c['historized']) ? 1 : 0);
+                    $cmd->setType(isset($c['cmdType']) ? $c['cmdType'] : 'info');
+                    $cmd->setSubType(isset($c['subType']) ? $c['subType'] : 'string');
+                    if (!empty($c['unit'])) {
+                        $cmd->setUnite($c['unit']);
+                    }
+                    if (!empty($c['genericType'])) {
+                        $cmd->setGeneric_type($c['genericType']);
+                    }
+                    if (isset($c['order'])) {
+                        $cmd->setOrder((int) $c['order']);
+                    }
+                    $cmd->save();
                 }
-                $cmd->save();
-            }
-            if (($cmd->getType() == 'info') && array_key_exists('value', $c)) {
-                $eq->checkAndUpdateCmd($c['logicalId'], $c['value']);
+                if (($cmd->getType() == 'info') && array_key_exists('value', $c)) {
+                    $eq->checkAndUpdateCmd($c['logicalId'], $c['value']);
+                }
+            } catch (Exception $e) {
+                log::add('jee4viessmann', 'warning', 'Commande ignorée ' . $c['logicalId'] . ' : ' . $e->getMessage());
             }
         }
     }

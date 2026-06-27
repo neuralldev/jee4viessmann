@@ -66,11 +66,70 @@ UNIT_MAP = {
     "hour": "h",
     "minute": "min",
     "second": "s",
+    "seconds": "s",
     "revolutionsPerMinute": "tr/min",
 }
 
-# Propriétés "génériques" : on n'ajoute pas leur nom au libellé (la feature suffit).
-GENERIC_PROPS = {"value", "status", "active", "enabled"}
+# generic_type Jeedom par unité (pour widgets/graphes).
+GENERIC_TYPE_BY_UNIT = {
+    "°C": "TEMPERATURE",
+}
+
+# Propriété "générique" : son nom n'est pas accolé au libellé (la feature suffit).
+# On garde 'value' seulement : 'status'/'active'/... doivent rester distincts pour éviter
+# des noms de commande identiques (Jeedom impose l'unicité du nom par équipement).
+GENERIC_PROPS = {"value"}
+
+# Classement des features en sous-systèmes -> un eqLogic Jeedom par (device, sous-système).
+# Premier préfixe correspondant (sur la feature en minuscules) l'emporte.
+GROUP_RULES = [
+    ("heating.circuits", "circuits", "Circuits chauffage"),
+    ("heating.dhw", "ecs", "Eau chaude sanitaire"),
+    ("heating.domestichotwater", "ecs", "Eau chaude sanitaire"),
+    ("heating.compressors", "compresseur", "Compresseur"),
+    ("heating.heatingrod", "appoint", "Résistance d'appoint"),
+    ("heating.buffer", "tampon", "Ballon tampon"),
+    ("heating.cop", "energie", "COP / Énergie"),
+    ("heating.power", "energie", "COP / Énergie"),
+    ("heating.primarycircuit", "frigo", "Circuit frigorifique"),
+    ("heating.secondarycircuit", "frigo", "Circuit frigorifique"),
+    ("heating.evaporators", "frigo", "Circuit frigorifique"),
+    ("heating.condensors", "frigo", "Circuit frigorifique"),
+    ("heating.sensors.pressure", "frigo", "Circuit frigorifique"),
+    ("heating.sensors.temperature.hotgas", "frigo", "Circuit frigorifique"),
+    ("heating.sensors.temperature.liquidgas", "frigo", "Circuit frigorifique"),
+    ("heating.sensors.temperature.suctiongas", "frigo", "Circuit frigorifique"),
+    ("heating.configuration", "config", "Configuration"),
+]
+DEFAULT_GROUP = ("general", "Général")
+
+
+def classify(feature: str):
+    """Retourne (clé_groupe, libellé_groupe) pour une feature."""
+    f = feature.lower()
+    for prefix, key, label in GROUP_RULES:
+        if f.startswith(prefix):
+            return key, label
+    return DEFAULT_GROUP
+
+
+def is_visible(feature: str, prop: str, value) -> int:
+    """Visibilité par défaut : on masque le bruit (santé capteur, config, séries, flags)."""
+    f = feature.lower()
+    # Santé capteur (connected/notConnected) : créée mais masquée.
+    if prop == "status" and str(value) in ("connected", "notConnected"):
+        return 0
+    # Identifiants/série, configuration, contrôleur, infos device brutes : masqués.
+    if "serial" in f or "configuration" in f or "controller" in f or f.startswith("device"):
+        return 0
+    if "useapproved" in f or "mainecu" in f:
+        return 0
+    # Flags binaires par mode/programme : on garde seulement le résumé '...active' (value).
+    if ("operating.modes" in f or "operating.programs" in f) and prop == "active":
+        return 0
+    if prop in ("name", "demand"):
+        return 0
+    return 1
 
 
 def sanitize_logical_id(feature: str, prop: str) -> str:
@@ -102,21 +161,38 @@ def feature_to_commands(feature_entry: dict) -> list:
             continue
         if "value" not in meta:
             continue
-        value = meta["value"]
-        if ptype == "boolean":
-            value = 1 if value else 0
+        raw_value = meta["value"]
+        value = (1 if raw_value else 0) if ptype == "boolean" else raw_value
         raw_unit = meta.get("unit", "") or ""
         unit = UNIT_MAP.get(raw_unit, raw_unit)
+        group_key, group_label = classify(feature)
         commands.append({
             "logicalId": sanitize_logical_id(feature, prop),
             "name": humanize(feature, prop),
             "cmdType": "info",
             "subType": TYPE_MAP[ptype],
             "unit": unit,
+            "genericType": GENERIC_TYPE_BY_UNIT.get(unit, ""),
             # Historise automatiquement les capteurs numériques (températures, puissances...).
             "historized": 1 if ptype == "number" else 0,
+            "visible": is_visible(feature, prop, raw_value),
+            "group": group_key,
+            "groupLabel": group_label,
             "value": value,
         })
+    return commands
+
+
+def finalize_commands(commands: list) -> list:
+    """Garantit l'unicité des noms (Jeedom l'impose) et fixe l'ordre d'affichage."""
+    seen = {}
+    for i, c in enumerate(commands):
+        base = c["name"]
+        n = seen.get(base, 0) + 1
+        seen[base] = n
+        if n > 1:
+            c["name"] = "%s #%d" % (base, n)
+        c["order"] = i
     return commands
 
 
@@ -257,18 +333,28 @@ class Jee4Viessmann(BaseDaemon):
             commands = []
             for entry in features.get("data", []):
                 commands.extend(feature_to_commands(entry))
-            # Seuls les devices avec au moins une feature active génèrent un objet/commandes.
-            if commands:
-                self._logger.info("device %s (%s) : %d commandes actives",
-                                  ident["deviceId"], ident["model"], len(commands))
-                # Résumé concis (sans le dump brut) pour voir les données exploitables.
-                for c in commands:
-                    self._logger.info("  • %s = %s %s [%s]",
-                                      c["name"], c["value"], c.get("unit", ""), c["logicalId"])
-                await self.send_to_jeedom({"device": ident, "commands": commands})
-            else:
+            if not commands:
                 self._logger.debug("device %s (%s) : aucune feature active, ignoré",
                                    ident["deviceId"], ident["model"])
+                continue
+            # Regroupe par sous-système -> un eqLogic Jeedom par (device, groupe).
+            groups = {}
+            for c in commands:
+                groups.setdefault((c["group"], c["groupLabel"]), []).append(c)
+            self._logger.info("device %s (%s) : %d commandes actives, %d groupe(s)",
+                              ident["deviceId"], ident["model"], len(commands), len(groups))
+            for (gkey, glabel), gcmds in groups.items():
+                gcmds = finalize_commands(gcmds)  # noms uniques au sein de l'eqLogic
+                self._logger.info("  [%s] %s : %d commande(s)", gkey, glabel, len(gcmds))
+                for c in gcmds:
+                    vis = "" if c["visible"] else " (masqué)"
+                    self._logger.info("    • %s = %s %s%s", c["name"], c["value"], c.get("unit", ""), vis)
+                await self.send_to_jeedom({
+                    "device": ident,
+                    "group": gkey,
+                    "groupLabel": glabel,
+                    "commands": gcmds,
+                })
 
     async def _poll_loop(self) -> None:
         try:
