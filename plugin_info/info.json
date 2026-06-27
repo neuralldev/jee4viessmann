@@ -1,0 +1,16 @@
+{
+    "id": "jee4viessman",
+    "name": "Jee4Viessman",
+    "description": "Plugin Viessmann nouvelle génération : démon Python (PyViCare), commandes générées depuis le typage de l'API. Compatible Jeedom >= 4.6.",
+    "licence": "AGPL",
+    "author": "neuralldev",
+    "require": "4.6",
+    "category": "wellness",
+    "hasDependency": true,
+    "hasOwnDeamon": true,
+    "maxDependancyInstallTime": 10,
+    "changelog": "https://github.com/neuralldev/jee4viessman/blob/master/docs/#language#/changelog.md",
+    "documentation": "https://github.com/neuralldev/jee4viessman/blob/master/docs/#language#/index.md",
+    "language": ["fr_FR"],
+    "compatibility": ["rpi", "mobile", "v4"]
+}

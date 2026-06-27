@@ -216,3 +216,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Projet jee4viessman
+resources/venv/
+.DS_Store
+*.code-workspace

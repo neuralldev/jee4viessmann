@@ -1,0 +1,2 @@
+PyViCare>=2.35
+requests>=2.31
