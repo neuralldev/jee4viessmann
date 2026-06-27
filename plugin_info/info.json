@@ -1,7 +1,7 @@
 {
-    "id": "jee4viessmannn",
-    "name": "jee4viessmannn",
-    "description": "Plugin viessmannn nouvelle génération : démon Python (PyViCare), commandes générées depuis le typage de l'API. Compatible Jeedom >= 4.6.",
+    "id": "jee4viessmann",
+    "name": "jee4viessmann",
+    "description": "Plugin viessmann nouvelle génération : démon Python (PyViCare), commandes générées depuis le typage de l'API. Compatible Jeedom >= 4.6.",
     "licence": "AGPL",
     "author": "neuralldev",
     "require": "4.6",

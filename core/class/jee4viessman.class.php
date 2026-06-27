@@ -20,7 +20,7 @@ require_once __DIR__ . '/../../../../core/php/core.inc.php';
 
 /**
  * Architecture :
- *  - Tout l'I/O viessmannn (auth PyViCare, polling, exécution des actions) est dans le démon Python.
+ *  - Tout l'I/O viessmann (auth PyViCare, polling, exécution des actions) est dans le démon Python.
  *  - Cette classe PHP reste mince : cycle de vie Jeedom, supervision du démon, et passerelle :
  *      * démon -> PHP : callback HTTP (core/php/jee4viessmann.php) -> pushData() crée/MAJ les commandes
  *      * PHP -> démon : socket TCP (config des équipements + exécution des actions)
@@ -238,7 +238,7 @@ class jee4viessmannCmd extends cmd
             return;
         }
         $eqLogic = $this->getEqLogic();
-        // L'action est déléguée au démon Python qui appelle l'API viessmannn.
+        // L'action est déléguée au démon Python qui appelle l'API viessmann.
         jee4viessmann::sendToDaemon(array(
             'type'       => 'action',
             'eqLogicId'  => $eqLogic->getId(),

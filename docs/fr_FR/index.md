@@ -1,6 +1,6 @@
 # Plugin Jee4viessmann
 
-Plugin viessmannn nouvelle génération pour Jeedom **>= 4.6**.
+Plugin viessmann nouvelle génération pour Jeedom **>= 4.6**.
 
 ## Principe
 
@@ -18,7 +18,7 @@ La couche PHP reste minimale : cycle de vie Jeedom, supervision du démon, et pa
 ## Configuration d'un équipement
 
 1. Créer un équipement.
-2. Renseigner **Id Client** (viessmannn Developer Portal), **Email** et **Mot de passe** du compte viessmannn.
+2. Renseigner **Id Client** (viessmann Developer Portal), **Email** et **Mot de passe** du compte viessmann.
 3. Sauvegarder. Les commandes apparaissent automatiquement après le premier cycle du démon.
 
 ## Dépendances

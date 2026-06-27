@@ -15,7 +15,7 @@
 Démon Jee4viessmann.
 
 Responsabilités :
-  - authentification viessmannn via PyViCare (OAuth2 + PKCE + refresh token gérés par la lib) ;
+  - authentification viessmann via PyViCare (OAuth2 + PKCE + refresh token gérés par la lib) ;
   - découverte installation/gateway/device ;
   - polling périodique des features et génération des commandes à partir du *typage* de l'API
     (aucun mapping manuel) ;
@@ -105,7 +105,7 @@ def feature_to_commands(feature_entry):
 
 
 # --------------------------------------------------------------------------- #
-#  viessmannn (PyViCare)
+#  viessmann (PyViCare)
 # --------------------------------------------------------------------------- #
 
 def token_file(eq_id):
