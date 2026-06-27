@@ -27,6 +27,7 @@ Le socle jeedomdaemon gère pour nous : parsing des args (BaseConfig), socket TC
 """
 
 import asyncio
+import logging
 import re
 import traceback
 from typing import Optional
@@ -157,6 +158,11 @@ class Jee4Viessmann(BaseDaemon):
             self._logger.error("PyViCare non installé — voir plugin_info/packages.json")
             await self.stop()
             return
+        # jeedomdaemon met le logger racine au niveau demandé : en debug, PyViCare/urllib3
+        # déversent chaque payload HTTP (illisible). On muselle ces loggers tiers à WARNING
+        # pour ne garder que nos lignes de synthèse.
+        for name in ("PyViCare", "urllib3", "authlib", "requests", "asyncio"):
+            logging.getLogger(name).setLevel(logging.WARNING)
         self._poll_task = asyncio.create_task(self._poll_loop())
         self._logger.info("démon prêt (cyclepoll=%ss)", self._config.cyclepoll)
 
