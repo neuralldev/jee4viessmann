@@ -127,9 +127,47 @@ def is_visible(feature: str, prop: str, value) -> int:
     # Flags binaires par mode/programme : on garde seulement le résumé '...active' (value).
     if ("operating.modes" in f or "operating.programs" in f) and prop == "active":
         return 0
+    # Flags hydrauliques internes du RoomControl : peu utiles.
+    if f.startswith("rooms.features"):
+        return 0
     if prop in ("name", "demand"):
         return 0
     return 1
+
+
+# Traduction des segments de feature -> libellé FR. "" = segment supprimé (redondant).
+# Les segments inconnus passent tels quels ; les index numériques sont conservés.
+TERM_FR = {
+    "heating": "chauffage", "sensors": "", "operating": "",
+    "temperature": "température", "supply": "départ", "return": "retour",
+    "room": "ambiante", "outside": "extérieure", "ambient": "ambiante",
+    "circuits": "circuit", "circuit": "circuit",
+    "compressors": "compresseur", "compressor": "compresseur",
+    "pressure": "pression", "hotgas": "gaz chaud", "suctiongas": "gaz aspiration",
+    "liquidgas": "gaz liquide", "liquid": "liquide",
+    "inlet": "entrée", "outlet": "sortie", "overheat": "surchauffe",
+    "subcooling": "sous-refroidissement",
+    "power": "puissance", "rotation": "rotation",
+    "statistics": "statistiques", "starts": "démarrages", "hours": "heures",
+    "runtime": "temps fonctionnement", "load": "charge",
+    "buffer": "tampon", "buffercylinder": "ballon tampon", "top": "haut", "main": "bas",
+    "cop": "COP", "total": "total", "green": "vert", "photovoltaic": "photovoltaïque",
+    "cooling": "rafraîchissement", "dhw": "ECS",
+    "programs": "programme", "program": "programme", "modes": "mode", "mode": "mode",
+    "active": "actif", "comfort": "confort", "eco": "éco", "normal": "normal",
+    "reduced": "réduit", "standby": "veille", "fixed": "fixe", "demand": "demande",
+    "curve": "courbe", "slope": "pente", "shift": "translation", "schedule": "programmation",
+    "circulation": "circulation", "pump": "pompe", "frostprotection": "hors-gel",
+    "evaporators": "évaporateur", "evaporator": "évaporateur",
+    "condensors": "condenseur", "condensor": "condenseur",
+    "primarycircuit": "circuit primaire", "secondarycircuit": "circuit secondaire",
+    "levels": "niveaux", "level": "niveau", "min": "min", "max": "max",
+    "heatingrod": "résistance d'appoint", "phase": "phase", "holiday": "vacances",
+    "boiler": "chaudière", "controller": "régulateur", "serial": "n° série",
+    "type": "type", "name": "nom", "status": "état",
+    "wifi": "wifi", "strength": "signal", "bmuconnection": "connexion BMU",
+    "start": "début", "end": "fin", "configuration": "configuration",
+}
 
 
 def sanitize_logical_id(feature: str, prop: str) -> str:
@@ -138,10 +176,22 @@ def sanitize_logical_id(feature: str, prop: str) -> str:
 
 
 def humanize(feature: str, prop: str) -> str:
-    """Libellé lisible depuis le chemin de la feature (+ propriété si non générique)."""
-    label = feature.replace(".", " ").strip()
+    """Libellé FR lisible depuis le chemin de la feature (+ propriété si non générique)."""
+    parts = list(feature.split("."))
+    # Supprime le segment racine redondant (le device/groupe donne déjà le contexte).
+    if parts and parts[0].lower() in ("heating", "device"):
+        parts = parts[1:]
     if prop not in GENERIC_PROPS:
-        label += " " + prop
+        parts.append(prop)
+    out = []
+    for seg in parts:
+        if seg.isdigit():
+            out.append(seg)  # index de circuit/compresseur conservé
+            continue
+        fr = TERM_FR.get(seg.lower(), seg)
+        if fr:
+            out.append(fr)
+    label = " ".join(out).strip()
     return (label[:1].upper() + label[1:]) if label else (prop or feature)
 
 
