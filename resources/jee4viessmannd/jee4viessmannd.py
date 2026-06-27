@@ -262,6 +262,10 @@ def feature_to_commands(feature_entry: dict) -> list:
         value = (1 if raw_value else 0) if ptype == "boolean" else raw_value
         raw_unit = meta.get("unit", "") or ""
         unit = UNIT_MAP.get(raw_unit, raw_unit)
+        # Durées en secondes -> heures (1 décimale) pour la lisibilité.
+        if raw_unit in ("second", "seconds") and isinstance(value, (int, float)):
+            value = round(value / 3600.0, 1)
+            unit = "h"
         group_key, group_label = classify(feature)
         commands.append({
             "logicalId": sanitize_logical_id(feature, prop),
