@@ -160,70 +160,77 @@ class jee4viessmann extends eqLogic
         socket_close($socket);
     }
 
+    /* ============================ Identifiants (config plugin) ============================ */
+
     /**
-     * Envoie au démon la liste des équipements et leurs identifiants (déchiffrés).
-     * Le démon (ré)authentifie via PyViCare et lance le polling.
+     * Enregistre les identifiants au niveau du plugin (mot de passe chiffré), puis pousse
+     * la configuration au démon. Appelée depuis l'ajax (modal de connexion).
+     */
+    public static function saveCredentials($clientId, $user, $password)
+    {
+        config::save('clientId', trim($clientId), 'jee4viessmann');
+        config::save('userName', trim($user), 'jee4viessmann');
+        // Ne ré-écrit le mot de passe que s'il est fourni (permet de re-valider sans le retaper).
+        if (trim((string) $password) !== '') {
+            config::save('password', utils::encrypt(trim($password)), 'jee4viessmann');
+        }
+        self::syncDaemonConfig();
+    }
+
+    /**
+     * Envoie au démon le compte unique (identifiants déchiffrés) configuré au niveau du plugin.
+     * Le démon (ré)authentifie via PyViCare et lance le polling/découverte des devices.
      */
     public static function syncDaemonConfig()
     {
-        $equipments = array();
-        foreach (self::byType('jee4viessmann') as $eq) {
-            if ($eq->getIsEnable() != 1) {
-                continue;
-            }
-            // Les équipements "device" (enfants auto-créés) n'ont pas d'identifiants : ils ne
-            // sont pas envoyés au démon (qui s'authentifie via le parent uniquement).
-            if ($eq->getConfiguration('isDevice', 0) == 1) {
-                continue;
-            }
-            $equipments[] = array(
-                'id'       => $eq->getId(),
-                'clientId' => trim($eq->getConfiguration('clientId', '')),
-                'user'     => trim($eq->getConfiguration('userName', '')),
-                'pwd'      => trim((string) utils::decrypt($eq->getConfiguration('password', ''))),
-            );
+        $clientId = trim(config::byKey('clientId', 'jee4viessmann', ''));
+        $user     = trim(config::byKey('userName', 'jee4viessmann', ''));
+        $pwd      = trim((string) utils::decrypt(config::byKey('password', 'jee4viessmann', '')));
+        if ($clientId === '' || $user === '' || $pwd === '') {
+            log::add('jee4viessmann', 'info', 'Identifiants incomplets, configuration non envoyée au démon');
+            return;
         }
-        self::sendToDaemon(array('type' => 'config', 'equipments' => $equipments));
+        self::sendToDaemon(array(
+            'type'    => 'config',
+            'account' => array('clientId' => $clientId, 'user' => $user, 'pwd' => $pwd),
+        ));
+    }
+
+    /** Force une (ré)authentification + découverte (bouton "Détecter"). */
+    public static function detect()
+    {
+        self::syncDaemonConfig();
     }
 
     /* ============================ démon -> PHP (callback) ============================ */
 
     /**
      * Appelée par core/php/jee4viessmann.php quand le démon pousse des données.
-     * Le démon envoie un message par *device* viessmann. On crée (si besoin) un eqLogic
-     * enfant dédié au device, puis on crée/MAJ ses commandes depuis le typage reçu.
+     * Le démon envoie un message par *device* viessmann. On crée (si besoin) l'eqLogic
+     * dédié au device, puis on crée/MAJ ses commandes depuis le typage reçu.
      *
      * $payload = [
-     *   'eqLogicId' => int,                 // id de l'équipement parent (porteur des identifiants)
-     *   'device'    => ['installationId','gatewaySerial','deviceId','model','deviceType','online'],
-     *   'commands'  => [ ['logicalId','name','cmdType','subType','unit','value'], ... ],
+     *   'device'   => ['installationId','gatewaySerial','deviceId','model','deviceType','online'],
+     *   'commands' => [ ['logicalId','name','cmdType','subType','unit','value'], ... ],
      * ]
-     * (rétrocompat : sans 'device', les commandes vont directement sur l'équipement parent)
      */
     public static function pushData($payload)
     {
-        if (!isset($payload['eqLogicId']) || !isset($payload['commands'])) {
+        if (empty($payload['device']) || !is_array($payload['device']) || !isset($payload['commands'])) {
             return;
         }
-        $parent = self::byId($payload['eqLogicId']);
-        if (!is_object($parent)) {
+        $eq = self::findOrCreateDeviceEq($payload['device']);
+        if (!is_object($eq)) {
             return;
         }
-        $target = $parent;
-        if (!empty($payload['device']) && is_array($payload['device'])) {
-            $target = self::findOrCreateDeviceEq($parent, $payload['device']);
-            if (!is_object($target)) {
-                return;
-            }
-        }
-        self::applyCommands($target, $payload['commands']);
+        self::applyCommands($eq, $payload['commands']);
     }
 
     /**
-     * Retrouve (ou crée) l'eqLogic enfant correspondant à un device viessmann.
+     * Retrouve (ou crée) l'eqLogic correspondant à un device viessmann.
      * Clé stable : logicalId = sanitize("<gatewaySerial>_<deviceId>").
      */
-    protected static function findOrCreateDeviceEq($parent, $device)
+    protected static function findOrCreateDeviceEq($device)
     {
         $gateway = isset($device['gatewaySerial']) ? (string) $device['gatewaySerial'] : '';
         $deviceId = isset($device['deviceId']) ? (string) $device['deviceId'] : '';
@@ -242,15 +249,13 @@ class jee4viessmann extends eqLogic
             $eq->setName($model . ' (' . $deviceId . ')');
             $eq->setIsEnable(1);
             $eq->setIsVisible(1);
-            $eq->setObject_id($parent->getObject_id());
             $eq->setConfiguration('isDevice', 1);
-            $eq->setConfiguration('parentId', $parent->getId());
             $eq->setConfiguration('installationId', isset($device['installationId']) ? $device['installationId'] : '');
             $eq->setConfiguration('gatewaySerial', $gateway);
             $eq->setConfiguration('deviceId', $deviceId);
             $eq->setConfiguration('deviceType', isset($device['deviceType']) ? $device['deviceType'] : '');
             $eq->save();
-            log::add('jee4viessmann', 'info', 'Device créé : ' . $eq->getName() . ' (parent ' . $parent->getId() . ')');
+            log::add('jee4viessmann', 'info', 'Device créé : ' . $eq->getName());
         }
         return $eq;
     }
@@ -285,40 +290,8 @@ class jee4viessmann extends eqLogic
     }
 
     /* ============================ Cycle de vie ============================ */
-
-    public function preSave()
-    {
-        // Chiffrement des identifiants sensibles (cf. plugin v1). Idempotent (préfixe 'crypt:').
-        $password = $this->getConfiguration('password', '');
-        if ($password !== '') {
-            $this->setConfiguration('password', utils::encrypt($password));
-        }
-    }
-
-    public function postSave()
-    {
-        // Les enfants "device" sont créés par le démon : ne pas relancer de sync (évite la récursion).
-        if ($this->getConfiguration('isDevice', 0) == 1) {
-            return;
-        }
-        self::syncDaemonConfig();
-    }
-
-    public function postUpdate()
-    {
-        if ($this->getConfiguration('isDevice', 0) == 1) {
-            return;
-        }
-        self::syncDaemonConfig();
-    }
-
-    public function postRemove()
-    {
-        if ($this->getConfiguration('isDevice', 0) == 1) {
-            return;
-        }
-        self::syncDaemonConfig();
-    }
+    /* Les identifiants sont désormais au niveau du plugin (config) — les eqLogic sont
+       uniquement des devices auto-créés. Leur sauvegarde ne déclenche donc pas de re-sync. */
 }
 
 class jee4viessmannCmd extends cmd
@@ -329,9 +302,8 @@ class jee4viessmannCmd extends cmd
             return;
         }
         $eqLogic = $this->getEqLogic();
-        // La commande est portée par l'eqLogic "device" (enfant) : on route vers le parent
-        // porteur de la session PyViCare, en précisant le device ciblé.
-        $parentId = $eqLogic->getConfiguration('parentId', $eqLogic->getId());
+        // La commande est portée par l'eqLogic "device" : on indique au démon (compte unique)
+        // quel device cibler via son identité.
         $device = array(
             'installationId' => $eqLogic->getConfiguration('installationId', ''),
             'gatewaySerial'  => $eqLogic->getConfiguration('gatewaySerial', ''),
@@ -339,12 +311,11 @@ class jee4viessmannCmd extends cmd
         );
         // L'action est déléguée au démon Python qui appelle l'API viessmann.
         jee4viessmann::sendToDaemon(array(
-            'type'       => 'action',
-            'eqLogicId'  => $parentId,
-            'device'     => $device,
-            'logicalId'  => $this->getLogicalId(),
-            'subType'    => $this->getSubType(),
-            'options'    => $_options,
+            'type'      => 'action',
+            'device'    => $device,
+            'logicalId' => $this->getLogicalId(),
+            'subType'   => $this->getSubType(),
+            'options'   => $_options,
         ));
     }
 }

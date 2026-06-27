@@ -11,11 +11,14 @@ historique `viessmannIot` (tout-PHP, cron + cURL). Ici : **démon Python 3 + PyV
 ## Schéma
 ```
 Jeedom (PHP)  ──socket TCP 127.0.0.1:55070──>  Démon Python (PyViCare)
-   ^   {type:config|action}                         │ auth OAuth/PKCE, découverte device,
-   │                                                 │ polling features, typage->commandes
-   └──callback HTTP ?apikey  POST {eqLogicId,commands[]}──┘
+   ^   {type:config,account}                        │ auth OAuth/PKCE (compte unique),
+   │   {type:action,device}                         │ découverte multi-device, polling
+   │                                                 │ features, typage->commandes
+   └──callback HTTP ?apikey  POST {device,commands[]}──┘
 ```
-Détail complet dans `ARCHITECTURE.md`.
+**Compte unique** : les identifiants (clientId/email/password) sont au niveau **config plugin**
+(`config::byKey`, password chiffré), pas par eqLogic. Chaque **device** Viessmann ayant des features
+actives devient un eqLogic auto-créé (`isDevice=1`, clé `gatewaySerial_deviceId`). Détail dans `ARCHITECTURE.md`.
 
 > **Méthode démon/venv/deps calquée sur le plugin `jee4lm5`** : dépendances via le gestionnaire
 > natif Jeedom (`plugin_info/packages.json` → venv `resources/python_venv`), démon basé sur le
@@ -33,12 +36,15 @@ Détail complet dans `ARCHITECTURE.md`.
   - démon : `deamon_info` (pid + `posix_getsid`), `deamon_start` (venv `python_venv`, `fuser -k`, args
     BaseConfig), `deamon_stop` (SIGTERM puis SIGKILL), `backupExclude` (exclut `resources/python_venv`).
     Pas de `dependancy_info/install` (gérés par `packages.json`).
-  - PHP→démon : `sendToDaemon()` (socket, ajoute `apikey`), `syncDaemonConfig()` (identifiants déchiffrés).
-  - démon→PHP : `pushData()` crée les commandes manquantes **depuis le typage reçu** puis `checkAndUpdateCmd`.
-  - sécurité : `preSave()` chiffre `password` (`utils::encrypt`, idempotent préfixe `crypt:`).
-  - `jee4viessmannCmd::execute()` → `sendToDaemon({type:action})`.
+  - identifiants : `saveCredentials()` (chiffre+stocke en config plugin), `detect()` (re-sync), `syncDaemonConfig()`
+    (envoie le compte unique `{type:config,account}` au démon).
+  - démon→PHP : `pushData({device,commands})` → `findOrCreateDeviceEq()` (eqLogic par device) puis `applyCommands()`.
+  - `jee4viessmannCmd::execute()` → `sendToDaemon({type:action,device})` (device depuis la config de l'eqLogic).
+- `core/ajax/jee4viessmann.ajax.php` — actions `login` (enregistre identifiants) et `sync` (détection).
 - `core/php/jee4viessmann.php` — callback HTTP : valide apikey, ACK `?test=1` (exigé par jeedomdaemon) → `pushData()`.
-- `desktop/php/jee4viessmann.php` — page config réduite (clientId, email, password) + onglet commandes auto.
+- `desktop/modal/login.php` — modal de connexion (clientId + email + password).
+- `plugin_info/configuration.php` — boutons « Se connecter » (modal) / « Détecter » + log level + cyclePoll.
+- `desktop/php/jee4viessmann.php` — liste des équipements (devices auto-créés), plus de saisie identifiants.
 - `desktop/js/jee4viessmann.js` — rendu d'une ligne de commande.
 - `resources/jee4viessmannd/jee4viessmannd.py` — **démon** : hérite de `jeedomdaemon.BaseDaemon`
   (`on_start/on_message/on_stop`, `send_to_jeedom`, `run()`). PyViCare (bloquant) déporté via

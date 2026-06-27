@@ -110,8 +110,9 @@ class Jee4Viessmann(BaseDaemon):
             on_message_cb=self.on_message,
             on_stop_cb=self.on_stop,
         )
-        self._equipments: dict = {}   # eqId -> {clientId, user, pwd}
-        self._sessions: dict = {}     # eqId -> instance PyViCare (porte tous les devices)
+        # Compte unique configuré au niveau du plugin (clientId/user/pwd).
+        self._account: Optional[dict] = None
+        self._vicare = None           # instance PyViCare (porte tous les devices)
         self._poll_task: Optional[asyncio.Task] = None
 
     # ------------------------------------------------------------------ #
@@ -133,9 +134,10 @@ class Jee4Viessmann(BaseDaemon):
     async def on_message(self, message: dict) -> None:
         mtype = message.get("type")
         if mtype == "config":
-            self._equipments = {eq["id"]: eq for eq in message.get("equipments", [])}
-            self._sessions.clear()
-            self._logger.info("config reçue : %d équipement(s)", len(self._equipments))
+            account = message.get("account")
+            self._account = account if account and account.get("clientId") else None
+            self._vicare = None  # force ré-auth avec les nouveaux identifiants
+            self._logger.info("config reçue : compte %s", "défini" if self._account else "absent")
             await self._poll_all()  # poll immédiat après (re)config
         elif mtype == "action":
             await self._execute_action(message)
@@ -146,13 +148,11 @@ class Jee4Viessmann(BaseDaemon):
     #  PyViCare (bloquant) déporté dans un executor
     # ------------------------------------------------------------------ #
 
-    @staticmethod
-    def _token_file(eq_id) -> str:
-        return "/tmp/jee4viessmann_token_%s.save" % eq_id
+    TOKEN_FILE = "/tmp/jee4viessmann_token.save"
 
-    def _authenticate_blocking(self, eq_id, cfg):
+    def _authenticate_blocking(self, account: dict):
         vicare = PyViCare()
-        vicare.initWithCredentials(cfg["user"], cfg["pwd"], cfg["clientId"], self._token_file(eq_id))
+        vicare.initWithCredentials(account["user"], account["pwd"], account["clientId"], self.TOKEN_FILE)
         return vicare
 
     @staticmethod
@@ -161,7 +161,7 @@ class Jee4Viessmann(BaseDaemon):
 
     @staticmethod
     def _device_identity(device) -> dict:
-        """Identité stable d'un device PyViCare (pour mapper vers un eqLogic enfant)."""
+        """Identité stable d'un device PyViCare (pour mapper vers un eqLogic)."""
         accessor = device.service.accessor
         return {
             "installationId": accessor.id,
@@ -172,37 +172,35 @@ class Jee4Viessmann(BaseDaemon):
             "online": device.isOnline(),
         }
 
-    async def _ensure_session(self, eq_id):
-        vicare = self._sessions.get(eq_id)
-        if vicare is not None:
-            return vicare
-        cfg = self._equipments.get(eq_id)
-        if not cfg:
+    async def _ensure_session(self):
+        if self._vicare is not None:
+            return self._vicare
+        if not self._account:
             return None
         loop = asyncio.get_running_loop()
         try:
-            vicare = await loop.run_in_executor(None, self._authenticate_blocking, eq_id, cfg)
+            vicare = await loop.run_in_executor(None, self._authenticate_blocking, self._account)
         except Exception as e:
-            self._logger.error("éq %s : échec authentification : %s: %s", eq_id, type(e).__name__, e)
+            self._logger.error("échec authentification : %s: %s", type(e).__name__, e)
             # PyViCareInvalidCredentialsError est levée sans message quand l'IAM ne renvoie pas
             # de redirect 'Location' : soit identifiants erronés, soit (le plus souvent en migration
             # depuis le plugin v1) la redirect_uri du client n'est pas celle attendue par PyViCare.
             if type(e).__name__ == "PyViCareInvalidCredentialsError":
                 self._logger.error(
-                    "éq %s : vérifiez email/mot de passe ET que le client_id du Viessmann Developer "
-                    "Portal autorise la redirect_uri 'vicare://oauth-callback/everest' (le plugin v1 "
-                    "utilisait 'http://localhost:4200/', incompatible avec PyViCare).", eq_id)
-            self._logger.debug("trace auth éq %s :\n%s", eq_id, traceback.format_exc())
+                    "vérifiez email/mot de passe ET que le client_id du Viessmann Developer Portal "
+                    "autorise la redirect_uri 'vicare://oauth-callback/everest' (le plugin v1 utilisait "
+                    "'http://localhost:4200/', incompatible avec PyViCare).")
+            self._logger.debug("trace auth :\n%s", traceback.format_exc())
             return None
         if not getattr(vicare, "devices", None):
-            self._logger.warning("éq %s : aucun device supporté découvert", eq_id)
+            self._logger.warning("aucun device supporté découvert")
             return None
-        self._sessions[eq_id] = vicare
-        self._logger.info("éq %s : authentifié, %d device(s) supporté(s)", eq_id, len(vicare.devices))
+        self._vicare = vicare
+        self._logger.info("authentifié, %d device(s) supporté(s)", len(vicare.devices))
         return vicare
 
-    async def _poll_equipment(self, eq_id) -> None:
-        vicare = await self._ensure_session(eq_id)
+    async def _poll_all(self) -> None:
+        vicare = await self._ensure_session()
         if vicare is None:
             return
         loop = asyncio.get_running_loop()
@@ -212,33 +210,22 @@ class Jee4Viessmann(BaseDaemon):
                 features = await loop.run_in_executor(None, self._fetch_blocking, device)
             except Exception as e:
                 self._logger.warning(
-                    "éq %s / device %s : échec fetch_all_features (%s: %s), ré-auth au prochain cycle",
-                    eq_id, ident["deviceId"], type(e).__name__, e)
-                self._logger.debug("trace fetch éq %s :\n%s", eq_id, traceback.format_exc())
-                self._sessions.pop(eq_id, None)
+                    "device %s : échec fetch_all_features (%s: %s), ré-auth au prochain cycle",
+                    ident["deviceId"], type(e).__name__, e)
+                self._logger.debug("trace fetch :\n%s", traceback.format_exc())
+                self._vicare = None
                 return
             commands = []
             for entry in features.get("data", []):
                 commands.extend(feature_to_commands(entry))
             # Seuls les devices avec au moins une feature active génèrent un objet/commandes.
             if commands:
-                self._logger.debug("éq %s / device %s (%s) : %d commandes poussées",
-                                   eq_id, ident["deviceId"], ident["model"], len(commands))
-                await self.send_to_jeedom({
-                    "eqLogicId": eq_id,
-                    "device": ident,
-                    "commands": commands,
-                })
+                self._logger.debug("device %s (%s) : %d commandes poussées",
+                                   ident["deviceId"], ident["model"], len(commands))
+                await self.send_to_jeedom({"device": ident, "commands": commands})
             else:
-                self._logger.debug("éq %s / device %s (%s) : aucune feature active, ignoré",
-                                   eq_id, ident["deviceId"], ident["model"])
-
-    async def _poll_all(self) -> None:
-        for eq_id in list(self._equipments.keys()):
-            try:
-                await self._poll_equipment(eq_id)
-            except Exception as e:
-                self._logger.error("éq %s : erreur poll : %s", eq_id, e)
+                self._logger.debug("device %s (%s) : aucune feature active, ignoré",
+                                   ident["deviceId"], ident["model"])
 
     async def _poll_loop(self) -> None:
         try:
@@ -263,22 +250,19 @@ class Jee4Viessmann(BaseDaemon):
         return None
 
     async def _execute_action(self, message: dict) -> None:
-        eq_id = message.get("eqLogicId")
         logical_id = message.get("logicalId")
         options = message.get("options", {})
         ident = message.get("device", {})
-        vicare = self._sessions.get(eq_id)
-        if vicare is None:
-            self._logger.warning("action %s : pas de session pour l'équipement %s", logical_id, eq_id)
+        if self._vicare is None:
+            self._logger.warning("action %s : pas de session active", logical_id)
             return
-        device = self._find_device(vicare, ident)
+        device = self._find_device(self._vicare, ident)
         if device is None:
-            self._logger.warning("action %s : device %s introuvable pour l'équipement %s",
-                                 logical_id, ident.get("deviceId"), eq_id)
+            self._logger.warning("action %s : device %s introuvable", logical_id, ident.get("deviceId"))
             return
         # TODO : aiguiller vers les setters PyViCare (setMode, setTargetTemperature, ...).
-        self._logger.info("action reçue (à implémenter) : eq=%s device=%s id=%s options=%s",
-                          eq_id, ident.get("deviceId"), logical_id, options)
+        self._logger.info("action reçue (à implémenter) : device=%s id=%s options=%s",
+                          ident.get("deviceId"), logical_id, options)
 
 
 if __name__ == "__main__":

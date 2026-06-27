@@ -81,27 +81,8 @@ $eqLogics = eqLogic::byType($plugin->getId());
               </div>
             </div>
 
-            <legend><i class="fas fa-key"></i> {{Identifiants viessmann}}</legend>
-            <div class="form-group">
-              <label class="col-sm-3 control-label">{{Id Client}}</label>
-              <div class="col-sm-4">
-                <input type="text" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="clientId" placeholder="Client ID (viessmann Developer Portal)" />
-              </div>
-            </div>
-            <div class="form-group">
-              <label class="col-sm-3 control-label">{{Email}}</label>
-              <div class="col-sm-4">
-                <input type="text" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="userName" placeholder="Email du compte viessmann" />
-              </div>
-            </div>
-            <div class="form-group">
-              <label class="col-sm-3 control-label">{{Mot de passe}}</label>
-              <div class="col-sm-4">
-                <input type="password" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="password" placeholder="Mot de passe viessmann" />
-              </div>
-            </div>
             <div class="alert alert-info">
-              {{La découverte de l'installation, de la passerelle et de l'appareil ainsi que la création des commandes sont automatiques (démon Python / PyViCare). L'onglet Commandes se remplit seul après le premier cycle.}}
+              {{Les identifiants Viessmann se configurent dans la configuration du plugin (bouton « Se connecter »). Les équipements sont des devices découverts automatiquement ; leurs commandes se remplissent seules après chaque cycle du démon.}}
             </div>
           </fieldset>
         </form>
