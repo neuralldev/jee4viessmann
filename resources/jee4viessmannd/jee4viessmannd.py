@@ -267,7 +267,7 @@ def feature_to_commands(feature_entry: dict) -> list:
             value = round(value / 3600.0, 1)
             unit = "h"
         group_key, group_label = classify(feature)
-        commands.append({
+        cmd = {
             "logicalId": sanitize_logical_id(feature, prop),
             "name": humanize(feature, prop),
             "cmdType": "info",
@@ -280,7 +280,14 @@ def feature_to_commands(feature_entry: dict) -> list:
             "group": group_key,
             "groupLabel": group_label,
             "value": value,
-        })
+        }
+        # Ballon tampon : températures affichées avec le widget « thermomètre » graphique
+        # (jauge colorée bleu→rouge). Plage de la jauge passée en min/max de la commande.
+        if group_key == "tampon" and unit == "°C":
+            cmd["template"] = "thermometre"
+            cmd["min"] = 0
+            cmd["max"] = 80
+        commands.append(cmd)
     return commands
 
 

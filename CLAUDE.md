@@ -46,6 +46,9 @@ actives devient un eqLogic auto-créé (`isDevice=1`, clé `gatewaySerial_device
 - `plugin_info/configuration.php` — boutons « Se connecter » (modal) / « Détecter » + log level + cyclePoll.
 - `desktop/php/jee4viessmann.php` — liste des équipements (devices auto-créés), plus de saisie identifiants.
 - `desktop/js/jee4viessmann.js` — rendu d'une ligne de commande.
+- `core/template/{dashboard,mobile}/cmd.info.numeric.thermometre.html` — **widget graphique**
+  « thermomètre » (jauge verticale colorée bleu→rouge) pour commande info numérique ; sélectionnable
+  à la main, **auto-assigné** aux températures du ballon tampon (plage de la jauge via `#min#`/`#max#`).
 - `resources/jee4viessmannd/jee4viessmannd.py` — **démon** : hérite de `jeedomdaemon.BaseDaemon`
   (`on_start/on_message/on_stop`, `send_to_jeedom`, `run()`). PyViCare (bloquant) déporté via
   `run_in_executor`. Config étendue `JeeConfig(BaseConfig)` pour l'arg `--cyclepoll`.
@@ -95,6 +98,10 @@ via `service.setProperty(feature, action, {param: value})`.
 - Noms : `clean_name()` retire apostrophes/tirets longs/`#`/`|`/`;` (sinon ennuis Jeedom) ; dédup ` N`.
 - `applyCommands` rafraîchit nom/unité/ordre/generic_type/type/**subType**/**visibilité** à chaque cycle
   (propagation des règles sans recréer) ; seule l'**historisation** est posée à la création.
+- Widget « thermomètre » : le démon émet `template`+`min`/`max` (group `tampon`, unité `°C`), `applyCommands`
+  pose `setTemplate('dashboard'/'mobile', ...)` + `configuration.minValue/maxValue` (placeholders `#min#`/`#max#`).
+  Le template est **autonome** (CSS inline + JS) ; un `MutationObserver` sur `.cmdValue` re-rend la jauge à
+  chaque mise à jour live de Jeedom (pas besoin de hook côté core). Garde `data-jee4vInit` = anti double-init.
 - Actions liées à leur info via `setValue` (`LINK_PROP`) → le widget slider/select affiche la valeur courante.
   `activate`/`deactivate` forcés en **boutons** (sinon slider si l'API expose un param température optionnel).
 - Quota : `PyViCareRateLimitError.limitResetDate` → `_paused_until` met le polling en pause jusqu'au reset

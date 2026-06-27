@@ -326,6 +326,26 @@ class jee4viessmann extends eqLogic
                     $cmd->save();
                 }
 
+                // Widget graphique éventuel (ex. « thermomètre » pour les températures du
+                // ballon tampon) : template + plage de la jauge (#min#/#max#). Posé/rafraîchi
+                // sans recréer la commande ; l'utilisateur peut toujours le changer à la main.
+                if (!empty($c['template'])) {
+                    $tpl = $c['template'];
+                    if ($cmd->getTemplate('dashboard') != $tpl || $cmd->getTemplate('mobile') != $tpl) {
+                        $cmd->setTemplate('dashboard', $tpl);
+                        $cmd->setTemplate('mobile', $tpl);
+                        $cmd->save();
+                    }
+                    if (isset($c['min']) && $cmd->getConfiguration('minValue') != $c['min']) {
+                        $cmd->setConfiguration('minValue', $c['min']);
+                        $cmd->save();
+                    }
+                    if (isset($c['max']) && $cmd->getConfiguration('maxValue') != $c['max']) {
+                        $cmd->setConfiguration('maxValue', $c['max']);
+                        $cmd->save();
+                    }
+                }
+
                 if ($cmd->getType() == 'action') {
                     // Stocke le mapping d'exécution (feature/action/param) + contraintes widget.
                     $cmd->setConfiguration('feature', isset($c['feature']) ? $c['feature'] : '');
