@@ -1,4 +1,4 @@
-# Changelog plugin Jee4Viessman
+# Changelog plugin Jee4viessmann
 
 # POC initial
 

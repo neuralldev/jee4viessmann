@@ -20,30 +20,30 @@ require_once __DIR__ . '/../../../../core/php/core.inc.php';
 
 /**
  * Architecture :
- *  - Tout l'I/O Viessmann (auth PyViCare, polling, exécution des actions) est dans le démon Python.
+ *  - Tout l'I/O viessmannn (auth PyViCare, polling, exécution des actions) est dans le démon Python.
  *  - Cette classe PHP reste mince : cycle de vie Jeedom, supervision du démon, et passerelle :
- *      * démon -> PHP : callback HTTP (core/php/jee4viessman.php) -> pushData() crée/MAJ les commandes
+ *      * démon -> PHP : callback HTTP (core/php/jee4viessmann.php) -> pushData() crée/MAJ les commandes
  *      * PHP -> démon : socket TCP (config des équipements + exécution des actions)
  */
-class jee4viessman extends eqLogic
+class jee4viessmann extends eqLogic
 {
     /* ============================ Dépendances ============================ */
 
     public static function dependancy_info()
     {
         $return = array();
-        $return['log'] = 'jee4viessman_dep';
-        $return['progress_file'] = jeedom::getTmpFolder('jee4viessman') . '/dependance';
+        $return['log'] = 'jee4viessmann_dep';
+        $return['progress_file'] = jeedom::getTmpFolder('jee4viessmann') . '/dependance';
         $return['state'] = file_exists(__DIR__ . '/../../resources/venv/bin/python3') ? 'ok' : 'nok';
         return $return;
     }
 
     public static function dependancy_install()
     {
-        log::remove('jee4viessman_dep');
+        log::remove('jee4viessmann_dep');
         return array(
-            'script' => __DIR__ . '/../../resources/install.sh ' . jeedom::getTmpFolder('jee4viessman') . '/dependance',
-            'log' => log::getPathToLog('jee4viessman_dep'),
+            'script' => __DIR__ . '/../../resources/install.sh ' . jeedom::getTmpFolder('jee4viessmann') . '/dependance',
+            'log' => log::getPathToLog('jee4viessmann_dep'),
         );
     }
 
@@ -52,9 +52,9 @@ class jee4viessman extends eqLogic
     public static function deamon_info()
     {
         $return = array();
-        $return['log'] = 'jee4viessmand';
+        $return['log'] = 'jee4viessmannd';
         $return['state'] = 'nok';
-        $pidFile = jeedom::getTmpFolder('jee4viessman') . '/deamon.pid';
+        $pidFile = jeedom::getTmpFolder('jee4viessmann') . '/deamon.pid';
         if (file_exists($pidFile)) {
             $pid = trim(file_get_contents($pidFile));
             if ($pid !== '' && @posix_kill((int) $pid, 0)) {
@@ -78,19 +78,19 @@ class jee4viessman extends eqLogic
         }
 
         $python = realpath(__DIR__ . '/../../resources/venv/bin/python3');
-        $script = realpath(__DIR__ . '/../../resources/jee4viessmand/jee4viessmand.py');
-        $pidFile = jeedom::getTmpFolder('jee4viessman') . '/deamon.pid';
+        $script = realpath(__DIR__ . '/../../resources/jee4viessmannd/jee4viessmannd.py');
+        $pidFile = jeedom::getTmpFolder('jee4viessmann') . '/deamon.pid';
 
         $cmd = $python . ' ' . $script;
-        $cmd .= ' --loglevel ' . log::convertLogLevel(log::getLogLevel('jee4viessmand'));
-        $cmd .= ' --socketport ' . config::byKey('socketport', 'jee4viessman', 55070);
-        $cmd .= ' --callback ' . network::getNetworkAccess('internal') . '/plugins/jee4viessman/core/php/jee4viessman.php';
-        $cmd .= ' --apikey ' . jeedom::getApiKey('jee4viessman');
-        $cmd .= ' --cyclepoll ' . config::byKey('cyclePoll', 'jee4viessman', 120);
+        $cmd .= ' --loglevel ' . log::convertLogLevel(log::getLogLevel('jee4viessmannd'));
+        $cmd .= ' --socketport ' . config::byKey('socketport', 'jee4viessmann', 55070);
+        $cmd .= ' --callback ' . network::getNetworkAccess('internal') . '/plugins/jee4viessmann/core/php/jee4viessmann.php';
+        $cmd .= ' --apikey ' . jeedom::getApiKey('jee4viessmann');
+        $cmd .= ' --cyclepoll ' . config::byKey('cyclePoll', 'jee4viessmann', 120);
         $cmd .= ' --pid ' . $pidFile;
 
-        log::add('jee4viessman', 'info', 'Lancement du démon : ' . $cmd);
-        $result = exec(system::getCmdSudo() . 'nohup ' . $cmd . ' >> ' . log::getPathToLog('jee4viessmand') . ' 2>&1 &');
+        log::add('jee4viessmann', 'info', 'Lancement du démon : ' . $cmd);
+        $result = exec(system::getCmdSudo() . 'nohup ' . $cmd . ' >> ' . log::getPathToLog('jee4viessmannd') . ' 2>&1 &');
 
         // Laisse au démon le temps d'ouvrir son socket, puis pousse la configuration.
         for ($i = 1; $i <= 20; $i++) {
@@ -104,7 +104,7 @@ class jee4viessman extends eqLogic
 
     public static function deamon_stop()
     {
-        $pidFile = jeedom::getTmpFolder('jee4viessman') . '/deamon.pid';
+        $pidFile = jeedom::getTmpFolder('jee4viessmann') . '/deamon.pid';
         if (file_exists($pidFile)) {
             $pid = trim(file_get_contents($pidFile));
             if ($pid !== '') {
@@ -119,18 +119,18 @@ class jee4viessman extends eqLogic
     public static function sendToDaemon($message)
     {
         if (self::deamon_info()['state'] != 'ok') {
-            log::add('jee4viessman', 'debug', 'Démon arrêté, message ignoré');
+            log::add('jee4viessmann', 'debug', 'Démon arrêté, message ignoré');
             return;
         }
-        $port = config::byKey('socketport', 'jee4viessman', 55070);
+        $port = config::byKey('socketport', 'jee4viessmann', 55070);
         $payload = json_encode($message);
         $socket = socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
         if ($socket === false) {
-            log::add('jee4viessman', 'error', 'Impossible de créer le socket');
+            log::add('jee4viessmann', 'error', 'Impossible de créer le socket');
             return;
         }
         if (@socket_connect($socket, '127.0.0.1', (int) $port) === false) {
-            log::add('jee4viessman', 'error', 'Connexion au démon impossible');
+            log::add('jee4viessmann', 'error', 'Connexion au démon impossible');
             socket_close($socket);
             return;
         }
@@ -145,7 +145,7 @@ class jee4viessman extends eqLogic
     public static function syncDaemonConfig()
     {
         $equipments = array();
-        foreach (self::byType('jee4viessman') as $eq) {
+        foreach (self::byType('jee4viessmann') as $eq) {
             if ($eq->getIsEnable() != 1) {
                 continue;
             }
@@ -162,7 +162,7 @@ class jee4viessman extends eqLogic
     /* ============================ démon -> PHP (callback) ============================ */
 
     /**
-     * Appelée par core/php/jee4viessman.php quand le démon pousse des données.
+     * Appelée par core/php/jee4viessmann.php quand le démon pousse des données.
      * Crée les commandes manquantes (à partir du typage envoyé par le démon) puis met à jour les valeurs.
      *
      * $payload = ['eqLogicId' => int, 'commands' => [ ['logicalId','name','cmdType','subType','unit','value'], ... ]]
@@ -183,7 +183,7 @@ class jee4viessman extends eqLogic
             $cmd = $eq->getCmd(null, $c['logicalId']);
             if (!is_object($cmd)) {
                 // Création pilotée par le typage de l'API (pas de map manuel).
-                $cmd = new jee4viessmanCmd();
+                $cmd = new jee4viessmannCmd();
                 $cmd->setEqLogic_id($eq->getId());
                 $cmd->setLogicalId($c['logicalId']);
                 $cmd->setName(isset($c['name']) ? $c['name'] : $c['logicalId']);
@@ -230,7 +230,7 @@ class jee4viessman extends eqLogic
     }
 }
 
-class jee4viessmanCmd extends cmd
+class jee4viessmannCmd extends cmd
 {
     public function execute($_options = array())
     {
@@ -238,8 +238,8 @@ class jee4viessmanCmd extends cmd
             return;
         }
         $eqLogic = $this->getEqLogic();
-        // L'action est déléguée au démon Python qui appelle l'API Viessmann.
-        jee4viessman::sendToDaemon(array(
+        // L'action est déléguée au démon Python qui appelle l'API viessmannn.
+        jee4viessmann::sendToDaemon(array(
             'type'       => 'action',
             'eqLogicId'  => $eqLogic->getId(),
             'logicalId'  => $this->getLogicalId(),

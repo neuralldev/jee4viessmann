@@ -1,9 +1,9 @@
-# Architecture Jee4Viessman
+# Architecture Jee4viessmann
 
 ```
                  callback HTTP (apikey)            ┌────────────────────────┐
    ┌─────────┐   POST {eqLogicId, commands[]}      │  Démon Python 3 (venv) │
-   │  Jeedom  │ <────────────────────────────────  │  jee4viessmand.py      │
+   │  Jeedom  │ <────────────────────────────────  │  jee4viessmannd.py      │
    │  (PHP)   │                                     │  + PyViCare            │
    │          │   socket TCP 127.0.0.1:55070        │                        │
    │  classe  │ ──────────────────────────────────>│  - auth OAuth/PKCE      │
@@ -19,9 +19,9 @@
    et leurs identifiants déchiffrés (`syncDaemonConfig` → socket).
 2. **Polling** : le démon interroge l'API toutes les `cyclePoll` secondes, transforme chaque
    *property* typée en commande (`feature_to_commands`) et POST le tout au callback PHP.
-3. **Réception** : `core/php/jee4viessman.php` valide l'apikey et appelle `jee4viessman::pushData()`
+3. **Réception** : `core/php/jee4viessmann.php` valide l'apikey et appelle `jee4viessmann::pushData()`
    qui crée les commandes manquantes (depuis le typage) puis met à jour les valeurs.
-4. **Action** : `jee4viessmanCmd::execute()` envoie l'action au démon par socket ; le démon
+4. **Action** : `jee4viessmannCmd::execute()` envoie l'action au démon par socket ; le démon
    appelle le setter PyViCare correspondant.
 
 ## Ce qui reste en PHP (incompressible)

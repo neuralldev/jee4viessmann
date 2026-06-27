@@ -18,23 +18,23 @@
 
 require_once dirname(__FILE__) . '/../../../core/php/core.inc.php';
 
-function jee4viessman_install()
+function jee4viessmann_install()
 {
     if (version_compare(jeedom::version(), '4.6', '<')) {
         event::add('jeedom::alert', array(
             'level' => 'danger',
-            'title' => __('Plugin Jee4Viessman', __FILE__),
+            'title' => __('Plugin Jee4viessmann', __FILE__),
             'message' => __('Ce plugin nécessite Jeedom >= 4.6', __FILE__),
         ));
     }
 }
 
-function jee4viessman_update()
+function jee4viessmann_update()
 {
-    jee4viessman::deamon_start();
+    jee4viessmann::deamon_start();
 }
 
-function jee4viessman_remove()
+function jee4viessmann_remove()
 {
-    jee4viessman::deamon_stop();
+    jee4viessmann::deamon_stop();
 }

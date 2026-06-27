@@ -3,7 +3,7 @@ if (!isConnect('admin')) {
     throw new Exception('{{401 - Accès non autorisé}}');
 }
 
-$plugin = plugin::byId('jee4viessman');
+$plugin = plugin::byId('jee4viessmann');
 sendVarToJS('eqType', $plugin->getId());
 $eqLogics = eqLogic::byType($plugin->getId());
 ?>
@@ -81,23 +81,23 @@ $eqLogics = eqLogic::byType($plugin->getId());
               </div>
             </div>
 
-            <legend><i class="fas fa-key"></i> {{Identifiants Viessmann}}</legend>
+            <legend><i class="fas fa-key"></i> {{Identifiants viessmannn}}</legend>
             <div class="form-group">
               <label class="col-sm-3 control-label">{{Id Client}}</label>
               <div class="col-sm-4">
-                <input type="text" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="clientId" placeholder="Client ID (Viessmann Developer Portal)" />
+                <input type="text" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="clientId" placeholder="Client ID (viessmannn Developer Portal)" />
               </div>
             </div>
             <div class="form-group">
               <label class="col-sm-3 control-label">{{Email}}</label>
               <div class="col-sm-4">
-                <input type="text" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="userName" placeholder="Email du compte Viessmann" />
+                <input type="text" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="userName" placeholder="Email du compte viessmannn" />
               </div>
             </div>
             <div class="form-group">
               <label class="col-sm-3 control-label">{{Mot de passe}}</label>
               <div class="col-sm-4">
-                <input type="password" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="password" placeholder="Mot de passe Viessmann" />
+                <input type="password" class="eqLogicAttr form-control" data-l1key="configuration" data-l2key="password" placeholder="Mot de passe viessmannn" />
               </div>
             </div>
             <div class="alert alert-info">
@@ -122,5 +122,5 @@ $eqLogics = eqLogic::byType($plugin->getId());
   </div>
 </div>
 
-<?php include_file('desktop', 'jee4viessman', 'js', 'jee4viessman'); ?>
+<?php include_file('desktop', 'jee4viessmann', 'js', 'jee4viessmann'); ?>
 <?php include_file('core', 'plugin.template', 'js'); ?>

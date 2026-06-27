@@ -12,10 +12,10 @@
 # GNU General Public License for more details.
 
 """
-Démon Jee4Viessman.
+Démon Jee4viessmann.
 
 Responsabilités :
-  - authentification Viessmann via PyViCare (OAuth2 + PKCE + refresh token gérés par la lib) ;
+  - authentification viessmannn via PyViCare (OAuth2 + PKCE + refresh token gérés par la lib) ;
   - découverte installation/gateway/device ;
   - polling périodique des features et génération des commandes à partir du *typage* de l'API
     (aucun mapping manuel) ;
@@ -55,7 +55,7 @@ SESSIONS = {}          # {eqId: device PyViCare}
 
 JEEDOM_COM = None      # instance jeedom_com
 JEEDOM_SOCKET = None   # instance jeedom_socket
-PID_FILE = "/tmp/jee4viessmand.pid"
+PID_FILE = "/tmp/jee4viessmannd.pid"
 
 
 # --------------------------------------------------------------------------- #
@@ -105,11 +105,11 @@ def feature_to_commands(feature_entry):
 
 
 # --------------------------------------------------------------------------- #
-#  Viessmann (PyViCare)
+#  viessmannn (PyViCare)
 # --------------------------------------------------------------------------- #
 
 def token_file(eq_id):
-    return "/tmp/jee4viessman_token_%s.save" % eq_id
+    return "/tmp/jee4viessmann_token_%s.save" % eq_id
 
 
 def authenticate(eq_id, cfg):
@@ -243,13 +243,13 @@ def main():
     parser.add_argument("--callback", default="")
     parser.add_argument("--apikey", default="")
     parser.add_argument("--cyclepoll", default=120, type=int)
-    parser.add_argument("--pid", default="/tmp/jee4viessmand.pid")
+    parser.add_argument("--pid", default="/tmp/jee4viessmannd.pid")
     args = parser.parse_args()
 
     PID_FILE = args.pid
     jeedom_utils.set_log_level(args.loglevel)
 
-    logging.info("Démarrage jee4viessmand (port=%s, cycle=%ss)", args.socketport, args.cyclepoll)
+    logging.info("Démarrage jee4viessmannd (port=%s, cycle=%ss)", args.socketport, args.cyclepoll)
 
     signal.signal(signal.SIGINT, handler)
     signal.signal(signal.SIGTERM, handler)

@@ -1,10 +1,10 @@
-# Plugin Jee4Viessman
+# Plugin Jee4viessmann
 
-Plugin Viessmann nouvelle génération pour Jeedom **>= 4.6**.
+Plugin viessmannn nouvelle génération pour Jeedom **>= 4.6**.
 
 ## Principe
 
-Contrairement au plugin historique (tout en PHP, cron + cURL), Jee4Viessman repose sur un
+Contrairement au plugin historique (tout en PHP, cron + cURL), Jee4viessmann repose sur un
 **démon Python 3** (testé sous 3.13, en environnement virtuel) qui utilise la bibliothèque
 **PyViCare** pour :
 
@@ -18,7 +18,7 @@ La couche PHP reste minimale : cycle de vie Jeedom, supervision du démon, et pa
 ## Configuration d'un équipement
 
 1. Créer un équipement.
-2. Renseigner **Id Client** (Viessmann Developer Portal), **Email** et **Mot de passe** du compte Viessmann.
+2. Renseigner **Id Client** (viessmannn Developer Portal), **Email** et **Mot de passe** du compte viessmannn.
 3. Sauvegarder. Les commandes apparaissent automatiquement après le premier cycle du démon.
 
 ## Dépendances

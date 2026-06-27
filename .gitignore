@@ -221,3 +221,7 @@ __marimo__/
 resources/venv/
 .DS_Store
 *.code-workspace
+CLAUDE.md
+HANDOFF.md
+.claude
+.gitignore

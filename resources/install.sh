@@ -1,11 +1,11 @@
 #!/bin/bash
 # Création d'un environnement virtuel Python isolé et installation des dépendances.
-# Appelé par jee4viessman::dependancy_install().
+# Appelé par jee4viessmann::dependancy_install().
 
 PLUGIN_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 VENV_DIR="${PLUGIN_DIR}/resources/venv"
 
-echo "== Jee4Viessman : installation des dépendances =="
+echo "== Jee4viessmann : installation des dépendances =="
 echo "Répertoire plugin : ${PLUGIN_DIR}"
 
 # Python 3 (3.11+ recommandé ; testé sous 3.13)
