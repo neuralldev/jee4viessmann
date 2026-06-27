@@ -28,6 +28,7 @@ Le socle jeedomdaemon gère pour nous : parsing des args (BaseConfig), socket TC
 
 import asyncio
 import re
+import traceback
 from typing import Optional
 
 from jeedomdaemon.base_daemon import BaseDaemon
@@ -171,7 +172,17 @@ class Jee4Viessmann(BaseDaemon):
         try:
             device = await loop.run_in_executor(None, self._authenticate_blocking, eq_id, cfg)
         except Exception as e:
-            self._logger.error("éq %s : échec authentification : %s", eq_id, e)
+            msg = str(e)
+            self._logger.error("éq %s : échec authentification : %s: %s", eq_id, type(e).__name__, msg)
+            # PyViCareInvalidCredentialsError est levée sans message quand l'IAM ne renvoie pas
+            # de redirect 'Location' : soit identifiants erronés, soit (le plus souvent en migration
+            # depuis le plugin v1) la redirect_uri du client n'est pas celle attendue par PyViCare.
+            if type(e).__name__ == "PyViCareInvalidCredentialsError":
+                self._logger.error(
+                    "éq %s : vérifiez email/mot de passe ET que le client_id du Viessmann Developer "
+                    "Portal autorise la redirect_uri 'vicare://oauth-callback/everest' (le plugin v1 "
+                    "utilisait 'http://localhost:4200/', incompatible avec PyViCare).", eq_id)
+            self._logger.debug("trace auth éq %s :\n%s", eq_id, traceback.format_exc())
             return None
         if device is None:
             self._logger.warning("éq %s : aucun device découvert", eq_id)
@@ -188,7 +199,8 @@ class Jee4Viessmann(BaseDaemon):
         try:
             features = await loop.run_in_executor(None, self._fetch_blocking, device)
         except Exception as e:
-            self._logger.warning("éq %s : échec fetch_all_features (%s), ré-auth au prochain cycle", eq_id, e)
+            self._logger.warning("éq %s : échec fetch_all_features (%s: %s), ré-auth au prochain cycle", eq_id, type(e).__name__, e)
+            self._logger.debug("trace fetch éq %s :\n%s", eq_id, traceback.format_exc())
             self._devices.pop(eq_id, None)
             return
         commands = []

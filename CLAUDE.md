@@ -83,7 +83,12 @@ commandes **info** depuis le typage, chiffrement identifiants.
 - Le helper `jeedom.py` du template Jeedom historique est **Python 2** (`from Queue import Queue`,
   `import SocketServer`, `serial`, `pyudev`) → inutilisable en 3.13. Ici réécrit en Python 3.
 - `deamon_start` attend que le socket soit ouvert avant `syncDaemonConfig()`.
-- PyViCare gère lui-même PKCE/refresh : le champ `codeChallenge` du plugin v1 n'est plus nécessaire.
+- PyViCare gère lui-même PKCE/refresh : le champ `codeChallenge` du plugin v1 n'est plus nécessaire
+  (v1 réutilisait `codeChallenge` comme `code_challenge` ET `code_verifier` = PKCE « plain » manuel).
+- **redirect_uri** : `initWithCredentials` (PyViCareOAuthManager) impose `vicare://oauth-callback/everest`.
+  Le client_id du Developer Portal doit autoriser cette URI. Le plugin v1 utilisait `http://localhost:4200/`
+  → réutiliser tel quel ce client provoque un échec d'auth **sans message** (`PyViCareInvalidCredentialsError`,
+  levée quand l'IAM ne renvoie pas de header `Location`). Mêmes symptômes si email/mot de passe erronés.
 - Le `client_id` doit venir du Viessmann Developer Portal ; auth par mot de passe en voie de dépréciation
   côté Viessmann (risque externe suivi par PyViCare).
 ```
