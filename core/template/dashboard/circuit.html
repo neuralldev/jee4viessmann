@@ -2,28 +2,28 @@
   <div class="jee4v-head">
     <div class="jee4v-ico">🏠</div>
     <div class="jee4v-tt"><div class="jee4v-title">#title#</div><div class="jee4v-sub"></div></div>
-    <button class="jee4v-power" title="Marche / Veille">⏻</button>
+    <button class="jee4v-power" type="button" title="Marche / Veille">⏻</button>
   </div>
 
   <div class="jee4v-dial">
-    <button class="jee4v-minus" type="button">−</button>
-    <button class="jee4v-plus" type="button">+</button>
     <svg viewBox="0 0 260 260">
-      <path class="jee4v-track" fill="none" stroke="rgba(127,127,127,.18)" stroke-width="16" stroke-linecap="round"></path>
-      <path class="jee4v-arc" fill="none" stroke="#f59e0b" stroke-width="16" stroke-linecap="round"></path>
-      <circle class="jee4v-marker" r="7" fill="#fff" stroke="#333" stroke-width="3" style="display:none"></circle>
+      <path class="jee4v-track" fill="none" stroke="rgba(127,127,127,.16)" stroke-width="15" stroke-linecap="round"></path>
+      <path class="jee4v-arc" fill="none" stroke="#f0a330" stroke-width="15" stroke-linecap="round"></path>
+      <circle class="jee4v-marker" r="6" fill="#f0a330" stroke="#fff" stroke-width="2.5" style="display:none"></circle>
     </svg>
     <div class="jee4v-center">
       <div class="jee4v-set"><span class="jee4v-setval">--</span><span class="jee4v-deg">°C</span></div>
-      <div class="jee4v-room">Ambiante <b class="jee4v-roomval">—</b> · départ <b class="jee4v-supval">—</b></div>
+      <div class="jee4v-room">Ambiante <b class="jee4v-roomval">—</b></div>
       <div class="jee4v-progtag">●</div>
     </div>
+    <button class="jee4v-minus" type="button">−</button>
+    <button class="jee4v-plus" type="button">+</button>
   </div>
 
   <div class="jee4v-seg">#segments#</div>
 
   <div class="jee4v-metrics">
-    <div class="jee4v-metric"><div class="jee4v-lbl">🌡️ Départ</div><div class="jee4v-val jee4v-msup">—</div></div>
+    <div class="jee4v-metric jee4v-supwrap"><div class="jee4v-lbl">🌡️ Départ</div><div class="jee4v-val jee4v-msup">—</div></div>
     <div class="jee4v-metric jee4v-pump"><div class="jee4v-lbl"><span class="jee4v-dot"></span> Pompe</div><div class="jee4v-val"><span class="jee4v-pumptxt">—</span></div></div>
   </div>
 
@@ -33,31 +33,35 @@
   (function () {
     if (!document.getElementById('jee4vCCStyle')) {
       var st = document.createElement('style'); st.id = 'jee4vCCStyle';
-      st.textContent = ".jee4v-cc{font-family:inherit;max-width:340px;margin:0 auto;text-align:left;padding:6px 10px 10px}"
+      st.textContent = ".jee4v-cc{font-family:inherit;max-width:330px;margin:0 auto;text-align:left;padding:4px 12px 12px}"
+        + ".jee4v-cc button{box-sizing:border-box;font-family:inherit}"
         + ".jee4v-head{display:flex;align-items:center;gap:9px;margin-bottom:2px}"
-        + ".jee4v-ico{width:34px;height:34px;border-radius:11px;background:var(--jee4v-soft,#fff4e0);display:grid;place-items:center;font-size:18px;flex:0 0 auto}"
+        + ".jee4v-ico{width:32px;height:32px;border-radius:10px;background:var(--jee4v-soft,#ffe9c7);display:grid;place-items:center;font-size:17px;flex:0 0 auto}"
         + ".jee4v-tt{flex:1;min-width:0}.jee4v-title{font-weight:650;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}"
-        + ".jee4v-sub{font-size:11px;opacity:.6}"
-        + ".jee4v-power{width:34px;height:34px;border-radius:50%;border:1px solid rgba(127,127,127,.3);background:transparent;opacity:.55;cursor:pointer;font-size:15px}"
-        + ".jee4v-power.on{background:var(--jee4v-accent,#f59e0b);border-color:var(--jee4v-accent,#f59e0b);color:#fff;opacity:1}"
-        + ".jee4v-dial{position:relative;width:230px;height:230px;margin:4px auto 0}"
-        + ".jee4v-dial svg{width:230px;height:230px;display:block}"
-        + ".jee4v-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none}"
-        + ".jee4v-set{font-size:52px;font-weight:300;line-height:1}.jee4v-deg{font-size:20px;opacity:.5;vertical-align:super}"
-        + ".jee4v-room{font-size:12px;opacity:.65;margin-top:6px}.jee4v-room b{font-weight:600;opacity:1}"
-        + ".jee4v-progtag{margin-top:8px;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--jee4v-accent,#f59e0b)}"
-        + ".jee4v-minus,.jee4v-plus{position:absolute;top:50%;transform:translateY(-50%);width:38px;height:38px;border-radius:50%;border:1px solid rgba(127,127,127,.3);background:rgba(127,127,127,.08);font-size:20px;cursor:pointer;z-index:2}"
-        + ".jee4v-minus{left:-4px}.jee4v-plus{right:-4px}"
-        + ".jee4v-seg{display:flex;background:rgba(127,127,127,.12);border-radius:13px;padding:4px;margin:12px 0 10px}"
-        + ".jee4v-seg button{flex:1;border:0;background:transparent;color:inherit;opacity:.6;font-size:12px;font-weight:600;padding:8px 0;border-radius:9px;cursor:pointer}"
-        + ".jee4v-seg button .i{display:block;font-size:15px;margin-bottom:1px}"
-        + ".jee4v-seg button.active{background:rgba(255,255,255,.9);color:#222;opacity:1;box-shadow:0 2px 5px rgba(0,0,0,.12)}"
+        + ".jee4v-sub{font-size:11px;opacity:.55;text-transform:capitalize}"
+        + ".jee4v-power{width:34px;height:34px;border-radius:50%!important;border:1.5px solid rgba(127,127,127,.35);background:transparent;opacity:.5;cursor:pointer;font-size:15px;padding:0;transition:.2s}"
+        + ".jee4v-power.on{background:var(--jee4v-accent,#f0a330);border-color:var(--jee4v-accent,#f0a330);color:#fff;opacity:1;box-shadow:0 3px 10px rgba(0,0,0,.18)}"
+        + ".jee4v-dial{position:relative;width:215px;height:215px;margin:2px auto -8px}"
+        + ".jee4v-dial svg{width:215px;height:215px;display:block}"
+        + ".jee4v-center{position:absolute;left:0;right:0;top:46%;transform:translateY(-50%);display:flex;flex-direction:column;align-items:center;pointer-events:none}"
+        + ".jee4v-set{display:flex;align-items:flex-start;line-height:1;font-weight:300}"
+        + ".jee4v-setval{font-size:50px;letter-spacing:-1px}.jee4v-deg{font-size:17px;opacity:.45;margin-top:6px;margin-left:2px}"
+        + ".jee4v-room{font-size:12px;opacity:.6;margin-top:7px}.jee4v-room b{font-weight:600;opacity:1}"
+        + ".jee4v-progtag{margin-top:6px;font-size:10px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--jee4v-accent,#f0a330)}"
+        + ".jee4v-minus,.jee4v-plus{position:absolute;bottom:8px;width:40px;height:40px;border-radius:50%!important;border:1px solid rgba(127,127,127,.25);background:var(--jee4v-soft,#ffe9c7);color:#7a5a1f;font-size:21px;line-height:1;cursor:pointer;padding:0;z-index:2;transition:.15s}"
+        + ".jee4v-minus:active,.jee4v-plus:active{transform:scale(.92)}"
+        + ".jee4v-minus{left:14px}.jee4v-plus{right:14px}"
+        + ".jee4v-seg{display:flex;background:rgba(127,127,127,.12);border-radius:13px;padding:4px;margin:8px 0 10px}"
+        + ".jee4v-seg button{flex:1;border:0;background:transparent;color:inherit;opacity:.55;font-size:12px;font-weight:600;padding:7px 0;border-radius:10px!important;cursor:pointer}"
+        + ".jee4v-seg button .i{display:block;font-size:15px;margin-bottom:1px;opacity:.9}"
+        + ".jee4v-seg button.active{background:var(--jee4v-accent,#f0a330);color:#fff;opacity:1;box-shadow:0 2px 7px rgba(0,0,0,.18)}"
         + ".jee4v-metrics{display:flex;gap:8px;margin-bottom:10px}"
-        + ".jee4v-metric{flex:1;background:rgba(127,127,127,.10);border-radius:11px;padding:8px 10px}"
-        + ".jee4v-lbl{font-size:10px;opacity:.6;display:flex;align-items:center;gap:5px}.jee4v-val{font-size:16px;font-weight:650;margin-top:2px}"
-        + ".jee4v-dot{width:8px;height:8px;border-radius:50%;background:#bbb;display:inline-block}.jee4v-dot.on{background:#22c55e;box-shadow:0 0 0 3px rgba(34,197,94,.22)}"
-        + ".jee4v-mode{display:flex;align-items:center;gap:8px}.jee4v-mode label{font-size:12px;opacity:.6}"
-        + ".jee4v-mode select{flex:1;background:rgba(127,127,127,.12);border:1px solid rgba(127,127,127,.25);color:inherit;border-radius:10px;padding:8px 10px;font-size:12px;font-weight:600}";
+        + ".jee4v-metric{flex:1;background:rgba(127,127,127,.10);border-radius:11px;padding:8px 11px}"
+        + ".jee4v-lbl{font-size:10px;opacity:.55;display:flex;align-items:center;gap:5px}.jee4v-val{font-size:16px;font-weight:650;margin-top:2px}"
+        + ".jee4v-dot{width:8px;height:8px;border-radius:50%;background:#c2c8d0;display:inline-block}.jee4v-dot.on{background:#22c55e;box-shadow:0 0 0 3px rgba(34,197,94,.22)}"
+        + ".jee4v-mode{display:flex;align-items:center;gap:8px}.jee4v-mode label{font-size:12px;opacity:.55}"
+        + ".jee4v-mode select{flex:1;background:rgba(127,127,127,.12);border:1px solid rgba(127,127,127,.22);color:inherit;border-radius:10px;padding:8px 10px;font-size:12px;font-weight:600}"
+        + ".jee4v-off .jee4v-dial{opacity:.6}";
       document.head.appendChild(st);
     }
 
@@ -68,14 +72,18 @@
     var vals = {}; for (var k in (cfg.init || {})) vals[k] = cfg.init[k];
 
     var MIN = (cfg.min != null) ? cfg.min : 10, MAX = (cfg.max != null) ? cfg.max : 30;
+    var GREY = '#aab2bd';
     var CX = 130, CY = 130, R = 104, A0 = 225, SPAN = 270;
     function polar(a) { var r = (a - 90) * Math.PI / 180; return [CX + R * Math.cos(r), CY + R * Math.sin(r)]; }
     function arc(a0, a1) { var p = polar(a0), q = polar(a1), b = (a1 - a0) <= 180 ? 0 : 1;
       return "M " + p[0] + " " + p[1] + " A " + R + " " + R + " 0 " + b + " 1 " + q[0] + " " + q[1]; }
     function frac(v) { return Math.min(1, Math.max(0, (v - MIN) / (MAX - MIN))); }
-    function heat(v) { return "hsl(" + (210 - 150 * frac(v)) + ",85%,52%)"; }
+    // palette chaude ambre -> rouge (jamais de vert), assombrit avec la consigne
+    function heat(v) { var p = frac(v); return "hsl(" + (40 - 32 * p) + ",82%," + (56 - 9 * p) + "%)"; }
+    function softOf(v) { var p = frac(v); return "hsl(" + (40 - 32 * p) + ",82%,90%)"; }
     function num(id) { if (id == null) return null; var v = vals[id];
       if (v == null || v === '') return null; var n = parseFloat(String(v).replace(',', '.')); return isNaN(n) ? null : n; }
+    function pos(id) { var n = num(id); return (n != null && n > 0) ? n : null; }   // 0/absent = pas de sonde
     function txt(id) { return id == null ? null : (vals[id] == null ? null : String(vals[id])); }
     var $ = function (s) { return root.querySelector(s); };
     $('.jee4v-track').setAttribute('d', arc(A0, A0 + SPAN));
@@ -87,37 +95,41 @@
     }
     function setpointOf(p) { var P = cfg.programs[p] || {}; var v = num(P.tempCmd);
       return v != null ? v : (P.temp != null ? P.temp : 20); }
+    function isOn() { var m = txt(cfg.modeInfoCmd); return cfg.modeInfoCmd == null ? true : !(m && m.toLowerCase() === 'standby'); }
 
-    function paint(set) {
-      root.style.setProperty('--jee4v-accent', heat(set));
-      root.style.setProperty('--jee4v-soft', 'hsl(' + (210 - 150 * frac(set)) + ',85%,92%)');
-      $('.jee4v-arc').setAttribute('stroke', heat(set));
+    function paint(set, on) {
+      var col = on ? heat(set) : GREY;
+      root.style.setProperty('--jee4v-accent', on ? heat(set) : GREY);
+      root.style.setProperty('--jee4v-soft', on ? softOf(set) : 'rgba(127,127,127,.14)');
+      $('.jee4v-arc').setAttribute('stroke', col);
       $('.jee4v-arc').setAttribute('d', arc(A0, A0 + SPAN * frac(set)));
+      $('.jee4v-marker').setAttribute('fill', col);
       $('.jee4v-setval').textContent = set.toFixed(1);
     }
     function render() {
-      var ap = activeProg(), P = cfg.programs[ap] || {}, set = setpointOf(ap);
-      paint(set);
-      var room = num(cfg.roomCmd), sup = num(cfg.supplyCmd);
+      var on = isOn(), ap = activeProg(), P = cfg.programs[ap] || {}, set = setpointOf(ap);
+      root.classList.toggle('jee4v-off', !on);
+      paint(set, on);
+      var room = pos(cfg.roomCmd), sup = pos(cfg.supplyCmd);
       var mk = $('.jee4v-marker');
       if (room != null) { var m = polar(A0 + SPAN * frac(room)); mk.setAttribute('cx', m[0]); mk.setAttribute('cy', m[1]); mk.style.display = ''; }
       else mk.style.display = 'none';
+      $('.jee4v-room').style.display = (room != null) ? '' : 'none';
       $('.jee4v-roomval').textContent = room != null ? room.toFixed(1) + '°' : '—';
-      $('.jee4v-supval').textContent = sup != null ? Math.round(sup) + '°' : '—';
       $('.jee4v-msup').textContent = sup != null ? Math.round(sup) + '°C' : '—';
+      $('.jee4v-supwrap').style.display = (cfg.supplyCmd != null) ? '' : 'none';
       $('.jee4v-progtag').textContent = '● ' + (P.label || ap);
       root.querySelectorAll('.jee4v-seg button').forEach(function (b) { b.classList.toggle('active', b.dataset.prog === ap); });
 
       if (cfg.pumpCmd != null) {
-        var pv = (txt(cfg.pumpCmd) || '').toLowerCase(), on = (pv === 'on' || pv === '1' || pv === 'true');
-        $('.jee4v-pump .jee4v-dot').classList.toggle('on', on);
-        $('.jee4v-pumptxt').textContent = on ? 'En marche' : 'Arrêtée';
+        var pv = (txt(cfg.pumpCmd) || '').toLowerCase(), pon = (pv === 'on' || pv === '1' || pv === 'true');
+        $('.jee4v-pump .jee4v-dot').classList.toggle('on', pon);
+        $('.jee4v-pumptxt').textContent = pon ? 'En marche' : 'Arrêtée';
       } else { $('.jee4v-pump').style.display = 'none'; }
 
-      var mode = txt(cfg.modeInfoCmd), modeOn = !(mode && mode.toLowerCase() === 'standby');
-      $('.jee4v-power').classList.toggle('on', modeOn);
-      $('.jee4v-sub').textContent = modeOn ? (P.label || ap) : 'Veille';
-      var sel = $('.jee4v-mode select'); if (sel && mode) sel.value = mode;
+      $('.jee4v-power').classList.toggle('on', on);
+      $('.jee4v-sub').textContent = on ? (P.label || ap) : 'Veille';
+      var sel = $('.jee4v-mode select'), mode = txt(cfg.modeInfoCmd); if (sel && mode) sel.value = mode;
     }
 
     function exec(id, options) {
@@ -130,7 +142,7 @@
     function step(d) {
       var ap = activeProg(), P = cfg.programs[ap] || {};
       var nv = Math.min(MAX, Math.max(MIN, Math.round((setpointOf(ap) + d) * 2) / 2));
-      paint(nv);
+      paint(nv, isOn());
       if (P.setTempCmd != null) exec(P.setTempCmd, { slider: nv });
     }
 
@@ -149,15 +161,13 @@
 
     $('.jee4v-power').addEventListener('click', function () {
       if (cfg.modeCmd == null) return;
-      var on = this.classList.contains('on');
-      if (on) { exec(cfg.modeCmd, { select: cfg.modeStandby || 'standby' }); }
+      if (isOn()) { exec(cfg.modeCmd, { select: cfg.modeStandby || 'standby' }); }
       else if (cfg.modeOn) { exec(cfg.modeCmd, { select: cfg.modeOn }); }
     });
     if (cfg.modeCmd == null) $('.jee4v-power').style.display = 'none';
 
-    // abonnement aux mises à jour live de chaque commande info référencée
     var ids = [cfg.activeCmd, cfg.modeInfoCmd, cfg.roomCmd, cfg.supplyCmd, cfg.pumpCmd];
-    for (var p in cfg.programs) if (cfg.programs[p].tempCmd != null) ids.push(cfg.programs[p].tempCmd);
+    for (var pk in cfg.programs) if (cfg.programs[pk].tempCmd != null) ids.push(cfg.programs[pk].tempCmd);
     ids.forEach(function (id) {
       if (id == null) return;
       jeedom.cmd.addUpdateFunction(id, function (_o) {
