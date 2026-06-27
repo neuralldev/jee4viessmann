@@ -318,6 +318,14 @@ class jee4viessmann extends eqLogic
                     } elseif (($c['subType'] ?? '') === 'select' && isset($c['listValue'])) {
                         $cmd->setConfiguration('listValue', $c['listValue']);
                     }
+                    // Lie l'action à la commande info qu'elle pilote : le widget (slider/select)
+                    // affiche alors la valeur courante au lieu de partir de zéro.
+                    if (!empty($c['link'])) {
+                        $linked = $eq->getCmd(null, $c['link']);
+                        if (is_object($linked)) {
+                            $cmd->setValue($linked->getId());
+                        }
+                    }
                     $cmd->save();
                 } elseif (array_key_exists('value', $c)) {
                     $eq->checkAndUpdateCmd($c['logicalId'], $c['value']);

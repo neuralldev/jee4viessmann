@@ -188,6 +188,18 @@ COMMAND_FR = {
     "setlevels": "niveaux",
 }
 
+# Propriété info "pilotée" par une commande d'action -> permet de lier le slider/select à la
+# valeur courante (le widget affiche et modifie la même donnée).
+LINK_PROP = {
+    "settemperature": "temperature",
+    "settargettemperature": "temperature",
+    "setmode": "value",
+    "setmin": "min",
+    "setmax": "max",
+    "activate": "active",
+    "deactivate": "active",
+}
+
 
 def clean_name(s: str) -> str:
     """Retire les caractères spéciaux problématiques des noms (apostrophes, tirets longs, #...)
@@ -291,6 +303,7 @@ def feature_to_actions(feature_entry: dict) -> list:
         if "schedule" in cname.lower():
             continue
         params = cdef.get("params", {}) or {}
+        link_prop = LINK_PROP.get(cname.lower())
         common = {
             "logicalId": sanitize_logical_id(feature, cname),
             "name": action_name(feature, cname),
@@ -300,8 +313,14 @@ def feature_to_actions(feature_entry: dict) -> list:
             "groupLabel": group_label,
             "feature": feature,
             "action": cname,
+            # logicalId de la commande info pilotée (pour lier le widget à la valeur courante).
+            "link": sanitize_logical_id(feature, link_prop) if link_prop else "",
         }
-        if len(params) == 0:
+        # activate/deactivate : toujours des boutons (même si l'API expose un paramètre optionnel),
+        # pour une UX cohérente (sinon "activer" devient un slider selon les programmes).
+        if cname.lower() in ("activate", "deactivate"):
+            actions.append({**common, "subType": "other", "param": ""})
+        elif len(params) == 0:
             actions.append({**common, "subType": "other", "param": ""})
         elif len(params) == 1:
             pname, pdef = next(iter(params.items()))
