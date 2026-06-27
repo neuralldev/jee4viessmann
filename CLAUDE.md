@@ -82,11 +82,14 @@ via `service.setProperty(feature, action, {param: value})`.
 
 ## TODO (par priorité)
 1. Robustesse démon : reconnexion/backoff, gestion HTTP 4xx/quota, heartbeat vers Jeedom.
-4. Sécurité socket (actuellement localhost sans auth) ; envisager apikey aussi sur le socket.
-5. UX : noms lisibles / `logicalId` stables si besoin (sinon technique brut). array/Schedule.
-6. Tests : démarrage démon en conteneur sans device, puis avec compte Viessmann réel.
+2. Actions multi-paramètres (setCurve slope+shift, setSchedule) — actuellement ignorées (POC).
+3. Sécurité socket (actuellement localhost sans auth) ; envisager apikey aussi sur le socket.
+4. Tests : démarrage démon en conteneur sans device, puis avec compte Viessmann réel.
 
 ## Gotchas
+- Commandes d'action : générées depuis `commands[].params` (1 num min/max→slider, 1 enum→select,
+  0 param→bouton) ; mapping d'exécution stocké en `configuration` de la cmd (feature/action/param) ;
+  `jee4viessmannCmd::execute()` envoie la valeur (#slider#/#select#) au démon → `setProperty`.
 - Le helper `jeedom.py` du template Jeedom historique est **Python 2** (`from Queue import Queue`,
   `import SocketServer`, `serial`, `pyudev`) → inutilisable en 3.13. Ici réécrit en Python 3.
 - `deamon_start` attend que le socket soit ouvert avant `syncDaemonConfig()`.
