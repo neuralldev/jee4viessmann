@@ -93,6 +93,10 @@ via `service.setProperty(feature, action, {param: value})`.
   On **ne filtre pas** sur `isExecutable` (l'API ne le met à true que pour la commande pertinente à
   l'instant T → boutons instables) : génération depuis la *définition* (jeu stable, ex. activate+deactivate).
 - Noms : `clean_name()` retire apostrophes/tirets longs/`#`/`|`/`;` (sinon ennuis Jeedom) ; dédup ` N`.
+- `applyCommands` rafraîchit nom/unité/ordre/generic_type/type/**subType**/**visibilité** à chaque cycle
+  (propagation des règles sans recréer) ; seule l'**historisation** est posée à la création.
+- Actions liées à leur info via `setValue` (`LINK_PROP`) → le widget slider/select affiche la valeur courante.
+  `activate`/`deactivate` forcés en **boutons** (sinon slider si l'API expose un param température optionnel).
 - Quota : `PyViCareRateLimitError.limitResetDate` → `_paused_until` met le polling en pause jusqu'au reset
   (reprise auto). Backoff sur échec d'auth. Boucle de poll encapsulée (le démon ne meurt pas sur erreur).
   Après une action, re-poll du **seul** device concerné (`_poll_device`) pour économiser le quota.

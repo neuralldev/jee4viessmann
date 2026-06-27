@@ -125,8 +125,9 @@ def is_visible(feature: str, prop: str, value) -> int:
         return 0
     if "useapproved" in f or "mainecu" in f:
         return 0
-    # Flags binaires par mode/programme : on garde seulement le résumé '...active' (value).
-    if ("operating.modes" in f or "operating.programs" in f) and prop == "active":
+    # Sous-flags de *mode* (forcedNormal, normalStandby...) : bruit -> masqués.
+    # En revanche on AFFICHE les '...programs.<prog>.active' pour voir quel programme est actif.
+    if "operating.modes" in f and prop == "active":
         return 0
     # Flags hydrauliques internes du RoomControl : peu utiles.
     if f.startswith("rooms.features"):

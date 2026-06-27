@@ -276,32 +276,38 @@ class jee4viessmann extends eqLogic
             try {
                 $cmd = $eq->getCmd(null, $c['logicalId']);
                 $isNew = !is_object($cmd);
+                $type = isset($c['cmdType']) ? $c['cmdType'] : 'info';
+                $subType = isset($c['subType']) ? $c['subType'] : 'string';
                 if ($isNew) {
                     // Création pilotée par le typage de l'API (pas de map manuel).
                     $cmd = new jee4viessmannCmd();
                     $cmd->setEqLogic_id($eq->getId());
                     $cmd->setLogicalId($c['logicalId']);
-                    $cmd->setType(isset($c['cmdType']) ? $c['cmdType'] : 'info');
-                    $cmd->setSubType(isset($c['subType']) ? $c['subType'] : 'string');
-                    // Visibilité/historisation : posées à la création seulement (respect des choix user ensuite).
-                    $cmd->setIsVisible(array_key_exists('visible', $c) ? ((int) $c['visible']) : 1);
+                    // Historisation : posée à la création seulement (préférence/donnée user ensuite).
                     $cmd->setIsHistorized(!empty($c['historized']) ? 1 : 0);
                 }
-                // Métadonnées cosmétiques rafraîchies à chaque cycle (nom FR, unité, ordre, generic_type)
-                // pour propager les améliorations sans devoir recréer les équipements.
+                // Métadonnées rafraîchies à chaque cycle (nom FR, unité, ordre, generic_type, type/subType,
+                // visibilité pilotée par les règles) pour propager les améliorations sans recréer.
                 $name = isset($c['name']) ? $c['name'] : $c['logicalId'];
                 $unit = isset($c['unit']) ? $c['unit'] : '';
                 $gtype = isset($c['genericType']) ? $c['genericType'] : '';
                 $order = isset($c['order']) ? (int) $c['order'] : 0;
+                $visible = array_key_exists('visible', $c) ? ((int) $c['visible']) : 1;
                 $changed = $isNew
                     || $cmd->getName() != $name
                     || $cmd->getUnite() != $unit
                     || $cmd->getGeneric_type() != $gtype
+                    || $cmd->getType() != $type
+                    || $cmd->getSubType() != $subType
+                    || (int) $cmd->getIsVisible() != $visible
                     || (int) $cmd->getOrder() != $order;
                 if ($changed) {
                     $cmd->setName($name);
                     $cmd->setUnite($unit);
                     $cmd->setGeneric_type($gtype);
+                    $cmd->setType($type);
+                    $cmd->setSubType($subType);
+                    $cmd->setIsVisible($visible);
                     $cmd->setOrder($order);
                     $cmd->save();
                 }
