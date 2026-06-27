@@ -115,9 +115,10 @@ def classify(feature: str):
 
 
 def is_visible(feature: str, prop: str, value) -> int:
-    """Visibilité par défaut : on masque le bruit (santé capteur, config, séries, flags)."""
+    """Visibilité par défaut : on n'affiche que l'essentiel exploitable, le reste est créé
+       mais masqué (récupérable à la main). Objectif : un tableau lisible, pas 47 champs."""
     f = feature.lower()
-    # Santé capteur (connected/notConnected) : créée mais masquée.
+    # Santé capteur (connected/notConnected) : masquée.
     if prop == "status" and str(value) in ("connected", "notConnected"):
         return 0
     # Identifiants/série, configuration, contrôleur, infos device brutes : masqués.
@@ -125,14 +126,20 @@ def is_visible(feature: str, prop: str, value) -> int:
         return 0
     if "useapproved" in f or "mainecu" in f:
         return 0
-    # Sous-flags de *mode* (forcedNormal, normalStandby...) : bruit -> masqués.
-    # En revanche on AFFICHE les '...programs.<prog>.active' pour voir quel programme est actif.
-    if "operating.modes" in f and prop == "active":
-        return 0
-    # Flags hydrauliques internes du RoomControl : peu utiles.
+    # Bruit/avancé : RoomControl interne, courbe de chauffe, niveaux mini/maxi, planification, type.
     if f.startswith("rooms.features"):
         return 0
-    if prop in ("name", "demand"):
+    if "heating.curve" in f or "temperature.levels" in f or "schedule" in f:
+        return 0
+    if prop in ("name", "demand", "type"):
+        return 0
+    # Programmes/modes : on garde uniquement les résumés '...modes.active' / '...programs.active'
+    # (valeur = mode/programme courant). On masque :
+    #   - les sous-flags binaires par mode/programme (operating.modes.X.active, operating.programs.X.active)
+    #   - les températures par programme (redondantes avec le slider de consigne qui les affiche)
+    if "operating.modes." in f and prop == "active":
+        return 0
+    if "operating.programs." in f and prop in ("active", "temperature"):
         return 0
     return 1
 
@@ -305,11 +312,16 @@ def feature_to_actions(feature_entry: dict) -> list:
             continue
         params = cdef.get("params", {}) or {}
         link_prop = LINK_PROP.get(cname.lower())
+        # Visible par défaut : consignes (setTemperature), sélecteur de mode (setMode) et
+        # 'activate' (sélecteur de programme : confort/éco/normal/réduit, mutuellement exclusifs).
+        # Masqué par défaut : 'deactivate' (redondant), niveaux min/max... (récupérables à la main).
+        default_visible = 1 if cname.lower() in (
+            "settemperature", "settargettemperature", "setmode", "activate") else 0
         common = {
             "logicalId": sanitize_logical_id(feature, cname),
             "name": action_name(feature, cname),
             "cmdType": "action",
-            "visible": 1,
+            "visible": default_visible,
             "group": group_key,
             "groupLabel": group_label,
             "feature": feature,
