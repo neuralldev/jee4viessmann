@@ -111,7 +111,7 @@ class Jee4Viessmann(BaseDaemon):
             on_stop_cb=self.on_stop,
         )
         self._equipments: dict = {}   # eqId -> {clientId, user, pwd}
-        self._devices: dict = {}      # eqId -> device PyViCare
+        self._sessions: dict = {}     # eqId -> instance PyViCare (porte tous les devices)
         self._poll_task: Optional[asyncio.Task] = None
 
     # ------------------------------------------------------------------ #
@@ -134,7 +134,7 @@ class Jee4Viessmann(BaseDaemon):
         mtype = message.get("type")
         if mtype == "config":
             self._equipments = {eq["id"]: eq for eq in message.get("equipments", [])}
-            self._devices.clear()
+            self._sessions.clear()
             self._logger.info("config reçue : %d équipement(s)", len(self._equipments))
             await self._poll_all()  # poll immédiat après (re)config
         elif mtype == "action":
@@ -153,27 +153,37 @@ class Jee4Viessmann(BaseDaemon):
     def _authenticate_blocking(self, eq_id, cfg):
         vicare = PyViCare()
         vicare.initWithCredentials(cfg["user"], cfg["pwd"], cfg["clientId"], self._token_file(eq_id))
-        if not vicare.devices:
-            return None
-        return vicare.devices[0]
+        return vicare
 
     @staticmethod
     def _fetch_blocking(device):
         return device.service.fetch_all_features()
 
-    async def _ensure_device(self, eq_id):
-        device = self._devices.get(eq_id)
-        if device is not None:
-            return device
+    @staticmethod
+    def _device_identity(device) -> dict:
+        """Identité stable d'un device PyViCare (pour mapper vers un eqLogic enfant)."""
+        accessor = device.service.accessor
+        return {
+            "installationId": accessor.id,
+            "gatewaySerial": accessor.serial,
+            "deviceId": device.getId(),
+            "model": device.getModel(),
+            "deviceType": device.getDeviceType(),
+            "online": device.isOnline(),
+        }
+
+    async def _ensure_session(self, eq_id):
+        vicare = self._sessions.get(eq_id)
+        if vicare is not None:
+            return vicare
         cfg = self._equipments.get(eq_id)
         if not cfg:
             return None
         loop = asyncio.get_running_loop()
         try:
-            device = await loop.run_in_executor(None, self._authenticate_blocking, eq_id, cfg)
+            vicare = await loop.run_in_executor(None, self._authenticate_blocking, eq_id, cfg)
         except Exception as e:
-            msg = str(e)
-            self._logger.error("éq %s : échec authentification : %s: %s", eq_id, type(e).__name__, msg)
+            self._logger.error("éq %s : échec authentification : %s: %s", eq_id, type(e).__name__, e)
             # PyViCareInvalidCredentialsError est levée sans message quand l'IAM ne renvoie pas
             # de redirect 'Location' : soit identifiants erronés, soit (le plus souvent en migration
             # depuis le plugin v1) la redirect_uri du client n'est pas celle attendue par PyViCare.
@@ -184,31 +194,44 @@ class Jee4Viessmann(BaseDaemon):
                     "utilisait 'http://localhost:4200/', incompatible avec PyViCare).", eq_id)
             self._logger.debug("trace auth éq %s :\n%s", eq_id, traceback.format_exc())
             return None
-        if device is None:
-            self._logger.warning("éq %s : aucun device découvert", eq_id)
+        if not getattr(vicare, "devices", None):
+            self._logger.warning("éq %s : aucun device supporté découvert", eq_id)
             return None
-        self._devices[eq_id] = device
-        self._logger.info("éq %s : authentifié", eq_id)
-        return device
+        self._sessions[eq_id] = vicare
+        self._logger.info("éq %s : authentifié, %d device(s) supporté(s)", eq_id, len(vicare.devices))
+        return vicare
 
     async def _poll_equipment(self, eq_id) -> None:
-        device = await self._ensure_device(eq_id)
-        if device is None:
+        vicare = await self._ensure_session(eq_id)
+        if vicare is None:
             return
         loop = asyncio.get_running_loop()
-        try:
-            features = await loop.run_in_executor(None, self._fetch_blocking, device)
-        except Exception as e:
-            self._logger.warning("éq %s : échec fetch_all_features (%s: %s), ré-auth au prochain cycle", eq_id, type(e).__name__, e)
-            self._logger.debug("trace fetch éq %s :\n%s", eq_id, traceback.format_exc())
-            self._devices.pop(eq_id, None)
-            return
-        commands = []
-        for entry in features.get("data", []):
-            commands.extend(feature_to_commands(entry))
-        if commands:
-            self._logger.debug("éq %s : %d commandes poussées", eq_id, len(commands))
-            await self.send_to_jeedom({"eqLogicId": eq_id, "commands": commands})
+        for device in vicare.devices:
+            ident = self._device_identity(device)
+            try:
+                features = await loop.run_in_executor(None, self._fetch_blocking, device)
+            except Exception as e:
+                self._logger.warning(
+                    "éq %s / device %s : échec fetch_all_features (%s: %s), ré-auth au prochain cycle",
+                    eq_id, ident["deviceId"], type(e).__name__, e)
+                self._logger.debug("trace fetch éq %s :\n%s", eq_id, traceback.format_exc())
+                self._sessions.pop(eq_id, None)
+                return
+            commands = []
+            for entry in features.get("data", []):
+                commands.extend(feature_to_commands(entry))
+            # Seuls les devices avec au moins une feature active génèrent un objet/commandes.
+            if commands:
+                self._logger.debug("éq %s / device %s (%s) : %d commandes poussées",
+                                   eq_id, ident["deviceId"], ident["model"], len(commands))
+                await self.send_to_jeedom({
+                    "eqLogicId": eq_id,
+                    "device": ident,
+                    "commands": commands,
+                })
+            else:
+                self._logger.debug("éq %s / device %s (%s) : aucune feature active, ignoré",
+                                   eq_id, ident["deviceId"], ident["model"])
 
     async def _poll_all(self) -> None:
         for eq_id in list(self._equipments.keys()):
@@ -229,16 +252,33 @@ class Jee4Viessmann(BaseDaemon):
     #  Actions (PHP -> démon)
     # ------------------------------------------------------------------ #
 
+    def _find_device(self, vicare, ident: dict):
+        """Retrouve le device PyViCare correspondant à l'identité reçue."""
+        if not ident:
+            return None
+        for device in vicare.devices:
+            if device.getId() == ident.get("deviceId") \
+                    and device.service.accessor.serial == ident.get("gatewaySerial"):
+                return device
+        return None
+
     async def _execute_action(self, message: dict) -> None:
         eq_id = message.get("eqLogicId")
         logical_id = message.get("logicalId")
         options = message.get("options", {})
-        device = self._devices.get(eq_id)
-        if device is None:
+        ident = message.get("device", {})
+        vicare = self._sessions.get(eq_id)
+        if vicare is None:
             self._logger.warning("action %s : pas de session pour l'équipement %s", logical_id, eq_id)
             return
+        device = self._find_device(vicare, ident)
+        if device is None:
+            self._logger.warning("action %s : device %s introuvable pour l'équipement %s",
+                                 logical_id, ident.get("deviceId"), eq_id)
+            return
         # TODO : aiguiller vers les setters PyViCare (setMode, setTargetTemperature, ...).
-        self._logger.info("action reçue (à implémenter) : eq=%s id=%s options=%s", eq_id, logical_id, options)
+        self._logger.info("action reçue (à implémenter) : eq=%s device=%s id=%s options=%s",
+                          eq_id, ident.get("deviceId"), logical_id, options)
 
 
 if __name__ == "__main__":

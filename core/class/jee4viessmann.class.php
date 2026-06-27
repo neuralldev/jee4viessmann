@@ -171,6 +171,11 @@ class jee4viessmann extends eqLogic
             if ($eq->getIsEnable() != 1) {
                 continue;
             }
+            // Les équipements "device" (enfants auto-créés) n'ont pas d'identifiants : ils ne
+            // sont pas envoyés au démon (qui s'authentifie via le parent uniquement).
+            if ($eq->getConfiguration('isDevice', 0) == 1) {
+                continue;
+            }
             $equipments[] = array(
                 'id'       => $eq->getId(),
                 'clientId' => trim($eq->getConfiguration('clientId', '')),
@@ -185,20 +190,75 @@ class jee4viessmann extends eqLogic
 
     /**
      * Appelée par core/php/jee4viessmann.php quand le démon pousse des données.
-     * Crée les commandes manquantes (à partir du typage envoyé par le démon) puis met à jour les valeurs.
+     * Le démon envoie un message par *device* viessmann. On crée (si besoin) un eqLogic
+     * enfant dédié au device, puis on crée/MAJ ses commandes depuis le typage reçu.
      *
-     * $payload = ['eqLogicId' => int, 'commands' => [ ['logicalId','name','cmdType','subType','unit','value'], ... ]]
+     * $payload = [
+     *   'eqLogicId' => int,                 // id de l'équipement parent (porteur des identifiants)
+     *   'device'    => ['installationId','gatewaySerial','deviceId','model','deviceType','online'],
+     *   'commands'  => [ ['logicalId','name','cmdType','subType','unit','value'], ... ],
+     * ]
+     * (rétrocompat : sans 'device', les commandes vont directement sur l'équipement parent)
      */
     public static function pushData($payload)
     {
         if (!isset($payload['eqLogicId']) || !isset($payload['commands'])) {
             return;
         }
-        $eq = self::byId($payload['eqLogicId']);
-        if (!is_object($eq)) {
+        $parent = self::byId($payload['eqLogicId']);
+        if (!is_object($parent)) {
             return;
         }
-        foreach ($payload['commands'] as $c) {
+        $target = $parent;
+        if (!empty($payload['device']) && is_array($payload['device'])) {
+            $target = self::findOrCreateDeviceEq($parent, $payload['device']);
+            if (!is_object($target)) {
+                return;
+            }
+        }
+        self::applyCommands($target, $payload['commands']);
+    }
+
+    /**
+     * Retrouve (ou crée) l'eqLogic enfant correspondant à un device viessmann.
+     * Clé stable : logicalId = sanitize("<gatewaySerial>_<deviceId>").
+     */
+    protected static function findOrCreateDeviceEq($parent, $device)
+    {
+        $gateway = isset($device['gatewaySerial']) ? (string) $device['gatewaySerial'] : '';
+        $deviceId = isset($device['deviceId']) ? (string) $device['deviceId'] : '';
+        if ($deviceId === '') {
+            return null;
+        }
+        $logicalId = preg_replace('/[^a-zA-Z0-9]+/', '_', $gateway . '_' . $deviceId);
+        $logicalId = trim($logicalId, '_');
+
+        $eq = self::byLogicalId($logicalId, 'jee4viessmann');
+        if (!is_object($eq)) {
+            $model = !empty($device['model']) ? $device['model'] : $deviceId;
+            $eq = new jee4viessmann();
+            $eq->setLogicalId($logicalId);
+            $eq->setEqType_name('jee4viessmann');
+            $eq->setName($model . ' (' . $deviceId . ')');
+            $eq->setIsEnable(1);
+            $eq->setIsVisible(1);
+            $eq->setObject_id($parent->getObject_id());
+            $eq->setConfiguration('isDevice', 1);
+            $eq->setConfiguration('parentId', $parent->getId());
+            $eq->setConfiguration('installationId', isset($device['installationId']) ? $device['installationId'] : '');
+            $eq->setConfiguration('gatewaySerial', $gateway);
+            $eq->setConfiguration('deviceId', $deviceId);
+            $eq->setConfiguration('deviceType', isset($device['deviceType']) ? $device['deviceType'] : '');
+            $eq->save();
+            log::add('jee4viessmann', 'info', 'Device créé : ' . $eq->getName() . ' (parent ' . $parent->getId() . ')');
+        }
+        return $eq;
+    }
+
+    /** Crée les commandes manquantes (typage API) puis met à jour les valeurs info. */
+    protected static function applyCommands($eq, $commands)
+    {
+        foreach ($commands as $c) {
             if (!isset($c['logicalId'])) {
                 continue;
             }
@@ -237,17 +297,26 @@ class jee4viessmann extends eqLogic
 
     public function postSave()
     {
-        // Toute modification d'un équipement est propagée au démon.
+        // Les enfants "device" sont créés par le démon : ne pas relancer de sync (évite la récursion).
+        if ($this->getConfiguration('isDevice', 0) == 1) {
+            return;
+        }
         self::syncDaemonConfig();
     }
 
     public function postUpdate()
     {
+        if ($this->getConfiguration('isDevice', 0) == 1) {
+            return;
+        }
         self::syncDaemonConfig();
     }
 
     public function postRemove()
     {
+        if ($this->getConfiguration('isDevice', 0) == 1) {
+            return;
+        }
         self::syncDaemonConfig();
     }
 }
@@ -260,10 +329,19 @@ class jee4viessmannCmd extends cmd
             return;
         }
         $eqLogic = $this->getEqLogic();
+        // La commande est portée par l'eqLogic "device" (enfant) : on route vers le parent
+        // porteur de la session PyViCare, en précisant le device ciblé.
+        $parentId = $eqLogic->getConfiguration('parentId', $eqLogic->getId());
+        $device = array(
+            'installationId' => $eqLogic->getConfiguration('installationId', ''),
+            'gatewaySerial'  => $eqLogic->getConfiguration('gatewaySerial', ''),
+            'deviceId'       => $eqLogic->getConfiguration('deviceId', ''),
+        );
         // L'action est déléguée au démon Python qui appelle l'API viessmann.
         jee4viessmann::sendToDaemon(array(
             'type'       => 'action',
-            'eqLogicId'  => $eqLogic->getId(),
+            'eqLogicId'  => $parentId,
+            'device'     => $device,
             'logicalId'  => $this->getLogicalId(),
             'subType'    => $this->getSubType(),
             'options'    => $_options,
