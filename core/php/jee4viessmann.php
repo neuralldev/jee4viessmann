@@ -38,7 +38,11 @@ try {
         throw new Exception(__('Charge utile invalide', __FILE__));
     }
 
-    jee4viessmann::pushData($data);
+    if (isset($data['type']) && $data['type'] === 'heartbeat') {
+        jee4viessmann::heartbeat($data);
+    } else {
+        jee4viessmann::pushData($data);
+    }
     echo 'ok';
 } catch (Exception $e) {
     http_response_code(400);

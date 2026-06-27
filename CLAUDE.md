@@ -81,9 +81,9 @@ sous-système (`classify`), noms **FR** (`humanize`/`TERM_FR`), unités/historis
 via `service.setProperty(feature, action, {param: value})`.
 
 ## TODO (par priorité)
-1. Robustesse démon : reconnexion/backoff, gestion HTTP 4xx/quota, heartbeat vers Jeedom.
-2. Actions multi-paramètres (setCurve slope+shift, setSchedule) — actuellement ignorées (POC).
-3. Sécurité socket (actuellement localhost sans auth) ; envisager apikey aussi sur le socket.
+1. Actions multi-paramètres (setCurve slope+shift, setSchedule) — actuellement ignorées (POC).
+2. Sélecteur de programme synthétique (1 widget au lieu de 4 boutons activate) — optionnel.
+3. Cosmétique : `seconds → h`. ECS / autres circuits quand activés.
 4. Tests : démarrage démon en conteneur sans device, puis avec compte Viessmann réel.
 
 ## Gotchas
@@ -100,6 +100,10 @@ via `service.setProperty(feature, action, {param: value})`.
 - Quota : `PyViCareRateLimitError.limitResetDate` → `_paused_until` met le polling en pause jusqu'au reset
   (reprise auto). Backoff sur échec d'auth. Boucle de poll encapsulée (le démon ne meurt pas sur erreur).
   Après une action, re-poll du **seul** device concerné (`_poll_device`) pour économiser le quota.
+- Heartbeat : le démon poste `{type:heartbeat,state,ts,pausedUntil}` à chaque cycle → `heartbeat()` stocke
+  `daemonState`/`lastHeartbeat`/`pausedUntil` en config, affichés dans `configuration.php` (état + dernier contact).
+- Sécurité socket : `--sockethost 127.0.0.1` (jamais exposé réseau) + apikey vérifiée par `BaseDaemon`
+  sur **chaque** message socket (et `jeedom::apiAccess` sur le callback HTTP).
 - Le helper `jeedom.py` du template Jeedom historique est **Python 2** (`from Queue import Queue`,
   `import SocketServer`, `serial`, `pyudev`) → inutilisable en 3.13. Ici réécrit en Python 3.
 - `deamon_start` attend que le socket soit ouvert avant `syncDaemonConfig()`.

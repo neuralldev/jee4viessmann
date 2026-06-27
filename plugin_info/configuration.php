@@ -2,9 +2,34 @@
 if (!isConnect('admin')) {
     throw new Exception('{{401 - Accès non autorisé}}');
 }
+$daemonState   = config::byKey('daemonState', 'jee4viessmann', '');
+$lastHeartbeat = config::byKey('lastHeartbeat', 'jee4viessmann', '');
+$pausedUntil   = config::byKey('pausedUntil', 'jee4viessmann', '');
+$stateLabels = array(
+    'ok'         => '{{Connecté}}',
+    'paused'     => '{{En pause (quota API)}}',
+    'no_account' => '{{Identifiants non configurés}}',
+    'connecting' => '{{Connexion en cours}}',
+);
+$stateLabel = isset($stateLabels[$daemonState]) ? $stateLabels[$daemonState] : $daemonState;
 ?>
 <form class="form-horizontal">
     <fieldset>
+        <legend><i class="fas fa-heartbeat"></i> {{État du démon}}</legend>
+        <div class="form-group">
+            <label class="col-md-4 control-label">{{État}}</label>
+            <div class="col-md-6">
+                <span class="label <?php echo ($daemonState === 'ok') ? 'label-success' : (($daemonState === 'paused') ? 'label-warning' : 'label-default'); ?>">
+                    <?php echo ($stateLabel !== '') ? $stateLabel : '{{Inconnu}}'; ?>
+                </span>
+                <?php if ($daemonState === 'paused' && $pausedUntil !== '') { echo ' <small>{{jusqu\'à}} ' . htmlspecialchars($pausedUntil) . ' UTC</small>'; } ?>
+            </div>
+        </div>
+        <div class="form-group">
+            <label class="col-md-4 control-label">{{Dernier contact démon}}</label>
+            <div class="col-md-6"><span class="form-control-static"><?php echo ($lastHeartbeat !== '') ? htmlspecialchars($lastHeartbeat) : '{{jamais}}'; ?></span></div>
+        </div>
+
         <legend><i class="fas fa-key"></i> {{Connexion au compte Viessmann}}</legend>
         <div class="form-group">
             <label class="col-md-4 control-label">{{Identifiants}}</label>

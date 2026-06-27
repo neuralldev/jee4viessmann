@@ -80,6 +80,8 @@ class jee4viessmann extends eqLogic
         // Niveau de log piloté par le log du plugin (cf. jee4lm5) : le sélecteur de la page
         // config (log::level) s'applique ainsi réellement au démon, dont la sortie va dans le log 'd'.
         $cmd .= ' --loglevel ' . log::convertLogLevel(log::getLogLevel(self::PLUGINNAME));
+        // Bind explicite sur la boucle locale : le socket n'est jamais exposé sur le réseau.
+        $cmd .= ' --sockethost 127.0.0.1';
         $cmd .= ' --socketport ' . self::JEEDOM_DAEMON_PORT;
         $cmd .= ' --apikey ' . jeedom::getApiKey(self::PLUGINNAME);
         $cmd .= ' --cyclepoll ' . config::byKey('cyclePoll', self::PLUGINNAME, 120);
@@ -200,6 +202,18 @@ class jee4viessmann extends eqLogic
     public static function detect()
     {
         self::syncDaemonConfig();
+    }
+
+    /**
+     * Heartbeat reçu du démon : mémorise l'état et l'horodatage de dernier contact.
+     * Permet d'afficher dans la config "démon vivant / en pause quota / dernière synchro".
+     */
+    public static function heartbeat($data)
+    {
+        config::save('daemonState', isset($data['state']) ? $data['state'] : 'unknown', 'jee4viessmann');
+        config::save('lastHeartbeat', date('Y-m-d H:i:s'), 'jee4viessmann');
+        config::save('pausedUntil', isset($data['pausedUntil']) ? $data['pausedUntil'] : '', 'jee4viessmann');
+        log::add('jee4viessmann', 'debug', 'heartbeat: ' . json_encode($data));
     }
 
     /* ============================ démon -> PHP (callback) ============================ */

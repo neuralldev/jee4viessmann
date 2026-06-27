@@ -427,10 +427,38 @@ class Jee4Viessmann(BaseDaemon):
             self._vicare = None  # force ré-auth avec les nouveaux identifiants
             self._logger.info("config reçue : compte %s", "défini" if self._account else "absent")
             await self._poll_all()  # poll immédiat après (re)config
+            await self._send_heartbeat()
         elif mtype == "action":
             await self._execute_action(message)
         else:
             self._logger.debug("message ignoré : %s", message)
+
+    # ------------------------------------------------------------------ #
+    #  Heartbeat (démon -> Jeedom) : état + dernière synchro
+    # ------------------------------------------------------------------ #
+
+    def _current_state(self) -> str:
+        if not self._account:
+            return "no_account"
+        if self._paused_until is not None and datetime.utcnow() < self._paused_until:
+            return "paused"
+        if self._vicare is not None:
+            return "ok"
+        return "connecting"
+
+    async def _send_heartbeat(self) -> None:
+        payload = {
+            "type": "heartbeat",
+            "state": self._current_state(),
+            "ts": datetime.utcnow().isoformat(),
+            "cyclepoll": self._config.cyclepoll,
+        }
+        if self._paused_until is not None:
+            payload["pausedUntil"] = self._paused_until.isoformat()
+        try:
+            await self.send_to_jeedom(payload)
+        except Exception as e:
+            self._logger.debug("heartbeat non envoyé : %s", e)
 
     # ------------------------------------------------------------------ #
     #  PyViCare (bloquant) déporté dans un executor
@@ -572,6 +600,7 @@ class Jee4Viessmann(BaseDaemon):
 
     async def _poll_loop(self) -> None:
         try:
+            await self._send_heartbeat()  # battement initial
             while True:
                 await asyncio.sleep(self._config.cyclepoll)
                 try:
@@ -582,6 +611,7 @@ class Jee4Viessmann(BaseDaemon):
                     # Le démon ne doit jamais mourir sur une erreur de cycle.
                     self._logger.error("erreur cycle de polling : %s: %s", type(e).__name__, e)
                     self._logger.debug("trace cycle :\n%s", traceback.format_exc())
+                await self._send_heartbeat()  # à chaque cycle, même en pause quota
         except asyncio.CancelledError:
             self._logger.info("boucle de poll arrêtée")
 
