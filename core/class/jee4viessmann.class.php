@@ -77,7 +77,9 @@ class jee4viessmann extends eqLogic
         $pidFile = jeedom::getTmpFolder(self::PLUGINNAME) . '/' . self::PLUGINNAME . 'd.pid';
 
         $cmd = $python . ' ' . $script;
-        $cmd .= ' --loglevel ' . log::convertLogLevel(log::getLogLevel(self::PLUGINNAME . 'd'));
+        // Niveau de log piloté par le log du plugin (cf. jee4lm5) : le sélecteur de la page
+        // config (log::level) s'applique ainsi réellement au démon, dont la sortie va dans le log 'd'.
+        $cmd .= ' --loglevel ' . log::convertLogLevel(log::getLogLevel(self::PLUGINNAME));
         $cmd .= ' --socketport ' . self::JEEDOM_DAEMON_PORT;
         $cmd .= ' --apikey ' . jeedom::getApiKey(self::PLUGINNAME);
         $cmd .= ' --cyclepoll ' . config::byKey('cyclePoll', self::PLUGINNAME, 120);
