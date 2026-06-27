@@ -275,7 +275,7 @@ class jee4viessmann extends eqLogic
                 $cmd->setLogicalId($c['logicalId']);
                 $cmd->setName(isset($c['name']) ? $c['name'] : $c['logicalId']);
                 $cmd->setIsVisible(1);
-                $cmd->setIsHistorized(0);
+                $cmd->setIsHistorized(!empty($c['historized']) ? 1 : 0);
                 $cmd->setType(isset($c['cmdType']) ? $c['cmdType'] : 'info');
                 $cmd->setSubType(isset($c['subType']) ? $c['subType'] : 'string');
                 if (!empty($c['unit'])) {

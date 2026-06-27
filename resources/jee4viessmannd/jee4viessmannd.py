@@ -50,14 +50,43 @@ TYPE_MAP = {
     "string": "string",
 }
 
+# Normalisation des unités renvoyées par l'API viessmann -> unités lisibles Jeedom.
+UNIT_MAP = {
+    "celsius": "°C",
+    "kelvin": "K",
+    "percent": "%",
+    "bar": "bar",
+    "watt": "W",
+    "kilowatt": "kW",
+    "wattHour": "Wh",
+    "kilowattHour": "kWh",
+    "cubicMeter": "m³",
+    "liter": "L",
+    "hour": "h",
+    "minute": "min",
+    "second": "s",
+    "revolutionsPerMinute": "tr/min",
+}
+
+# Propriétés "génériques" : on n'ajoute pas leur nom au libellé (la feature suffit).
+GENERIC_PROPS = {"value", "status", "active", "enabled"}
+
 
 def sanitize_logical_id(feature: str, prop: str) -> str:
     raw = (feature + "." + prop).lower()
     return re.sub(r"[^a-z0-9]+", "_", raw).strip("_")
 
 
+def humanize(feature: str, prop: str) -> str:
+    """Libellé lisible depuis le chemin de la feature (+ propriété si non générique)."""
+    label = feature.replace(".", " ").strip()
+    if prop not in GENERIC_PROPS:
+        label += " " + prop
+    return (label[:1].upper() + label[1:]) if label else (prop or feature)
+
+
 def feature_to_commands(feature_entry: dict) -> list:
-    """Transforme une feature de l'API en une liste de commandes info typées."""
+    """Transforme une feature *active* de l'API en commandes info typées et lisibles."""
     commands = []
     if not feature_entry.get("isEnabled", False):
         return commands
@@ -75,12 +104,16 @@ def feature_to_commands(feature_entry: dict) -> list:
         value = meta["value"]
         if ptype == "boolean":
             value = 1 if value else 0
+        raw_unit = meta.get("unit", "") or ""
+        unit = UNIT_MAP.get(raw_unit, raw_unit)
         commands.append({
             "logicalId": sanitize_logical_id(feature, prop),
-            "name": feature + " - " + prop,
+            "name": humanize(feature, prop),
             "cmdType": "info",
             "subType": TYPE_MAP[ptype],
-            "unit": meta.get("unit", ""),
+            "unit": unit,
+            # Historise automatiquement les capteurs numériques (températures, puissances...).
+            "historized": 1 if ptype == "number" else 0,
             "value": value,
         })
     return commands
@@ -220,8 +253,12 @@ class Jee4Viessmann(BaseDaemon):
                 commands.extend(feature_to_commands(entry))
             # Seuls les devices avec au moins une feature active génèrent un objet/commandes.
             if commands:
-                self._logger.debug("device %s (%s) : %d commandes poussées",
-                                   ident["deviceId"], ident["model"], len(commands))
+                self._logger.info("device %s (%s) : %d commandes actives",
+                                  ident["deviceId"], ident["model"], len(commands))
+                # Résumé concis (sans le dump brut) pour voir les données exploitables.
+                for c in commands:
+                    self._logger.info("  • %s = %s %s [%s]",
+                                      c["name"], c["value"], c.get("unit", ""), c["logicalId"])
                 await self.send_to_jeedom({"device": ident, "commands": commands})
             else:
                 self._logger.debug("device %s (%s) : aucune feature active, ignoré",
