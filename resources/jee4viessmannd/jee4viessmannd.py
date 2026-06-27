@@ -170,6 +170,24 @@ TERM_FR = {
 }
 
 
+# Traduction FR des commandes (setters) de l'API.
+COMMAND_FR = {
+    "settemperature": "consigne",
+    "settargettemperature": "consigne",
+    "setmode": "mode",
+    "setname": "nom",
+    "activate": "activer",
+    "deactivate": "désactiver",
+    "setcurve": "courbe",
+    "setschedule": "programmation",
+    "sethysteresis": "hystérésis",
+    "setmin": "min",
+    "setmax": "max",
+    "changeenddate": "fin",
+    "setlevels": "niveaux",
+}
+
+
 def sanitize_logical_id(feature: str, prop: str) -> str:
     raw = (feature + "." + prop).lower()
     return re.sub(r"[^a-z0-9]+", "_", raw).strip("_")
@@ -231,6 +249,61 @@ def feature_to_commands(feature_entry: dict) -> list:
             "value": value,
         })
     return commands
+
+
+def action_name(feature: str, cmd_name: str) -> str:
+    """Libellé FR d'une commande d'action (feature + verbe traduit)."""
+    base = humanize(feature, "value")  # contexte sans propriété
+    verb = COMMAND_FR.get(cmd_name.lower(), cmd_name)
+    return (base + " — " + verb).strip(" —")
+
+
+def feature_to_actions(feature_entry: dict) -> list:
+    """Génère les commandes d'action depuis le bloc 'commands' d'une feature active.
+       - 1 paramètre numérique (min/max) -> slider
+       - 1 paramètre enum               -> sélecteur
+       - 0 paramètre                    -> bouton
+       (les commandes multi-paramètres / texte libre / schedule sont ignorées pour le POC)
+    """
+    actions = []
+    if not feature_entry.get("isEnabled", False):
+        return actions
+    feature = feature_entry.get("feature", "")
+    cmds = feature_entry.get("commands", {}) or {}
+    group_key, group_label = classify(feature)
+    for cname, cdef in cmds.items():
+        if not isinstance(cdef, dict) or not cdef.get("isExecutable", False):
+            continue
+        params = cdef.get("params", {}) or {}
+        common = {
+            "logicalId": sanitize_logical_id(feature, cname),
+            "name": action_name(feature, cname),
+            "cmdType": "action",
+            "visible": 1,
+            "group": group_key,
+            "groupLabel": group_label,
+            "feature": feature,
+            "action": cname,
+        }
+        if len(params) == 0:
+            actions.append({**common, "subType": "other", "param": ""})
+        elif len(params) == 1:
+            pname, pdef = next(iter(params.items()))
+            constraints = (pdef or {}).get("constraints", {}) or {}
+            if "min" in constraints and "max" in constraints:
+                actions.append({**common, "subType": "slider", "param": pname,
+                                "min": constraints.get("min"), "max": constraints.get("max"),
+                                "step": constraints.get("stepping", 1)})
+            elif "enum" in constraints:
+                listv = ";".join("%s|%s" % (v, v) for v in constraints["enum"])
+                actions.append({**common, "subType": "select", "param": pname, "listValue": listv})
+            else:
+                logging.getLogger(__name__).debug(
+                    "action ignorée %s.%s (param %s sans contraintes exploitables)", feature, cname, pname)
+        else:
+            logging.getLogger(__name__).debug(
+                "action ignorée %s.%s (%d paramètres)", feature, cname, len(params))
+    return actions
 
 
 def finalize_commands(commands: list) -> list:
@@ -383,6 +456,7 @@ class Jee4Viessmann(BaseDaemon):
             commands = []
             for entry in features.get("data", []):
                 commands.extend(feature_to_commands(entry))
+                commands.extend(feature_to_actions(entry))
             if not commands:
                 self._logger.debug("device %s (%s) : aucune feature active, ignoré",
                                    ident["deviceId"], ident["model"])
@@ -397,8 +471,11 @@ class Jee4Viessmann(BaseDaemon):
                 gcmds = finalize_commands(gcmds)  # noms uniques au sein de l'eqLogic
                 self._logger.info("  [%s] %s : %d commande(s)", gkey, glabel, len(gcmds))
                 for c in gcmds:
-                    vis = "" if c["visible"] else " (masqué)"
-                    self._logger.info("    • %s = %s %s%s", c["name"], c["value"], c.get("unit", ""), vis)
+                    if c.get("cmdType") == "action":
+                        self._logger.info("    ⚙ %s [%s %s]", c["name"], c["subType"], c.get("action", ""))
+                    else:
+                        vis = "" if c.get("visible") else " (masqué)"
+                        self._logger.info("    • %s = %s %s%s", c["name"], c.get("value", ""), c.get("unit", ""), vis)
                 await self.send_to_jeedom({
                     "device": ident,
                     "group": gkey,
@@ -428,20 +505,51 @@ class Jee4Viessmann(BaseDaemon):
                 return device
         return None
 
+    @staticmethod
+    def _coerce(value):
+        """Tente de convertir une valeur slider/select en nombre, sinon laisse tel quel."""
+        if isinstance(value, (int, float)):
+            return value
+        if isinstance(value, str):
+            try:
+                f = float(value)
+                return int(f) if f.is_integer() else f
+            except (TypeError, ValueError):
+                return value
+        return value
+
+    def _set_property_blocking(self, device, feature, action, data):
+        return device.service.setProperty(feature, action, data)
+
     async def _execute_action(self, message: dict) -> None:
-        logical_id = message.get("logicalId")
-        options = message.get("options", {})
         ident = message.get("device", {})
+        feature = message.get("feature")
+        action = message.get("action")
+        param = message.get("param") or ""
+        value = message.get("value")
         if self._vicare is None:
-            self._logger.warning("action %s : pas de session active", logical_id)
+            self._logger.warning("action %s.%s : pas de session active", feature, action)
             return
         device = self._find_device(self._vicare, ident)
         if device is None:
-            self._logger.warning("action %s : device %s introuvable", logical_id, ident.get("deviceId"))
+            self._logger.warning("action %s.%s : device %s introuvable", feature, action, ident.get("deviceId"))
             return
-        # TODO : aiguiller vers les setters PyViCare (setMode, setTargetTemperature, ...).
-        self._logger.info("action reçue (à implémenter) : device=%s id=%s options=%s",
-                          ident.get("deviceId"), logical_id, options)
+        if not feature or not action:
+            self._logger.warning("action incomplète : feature/action manquant (%s)", message)
+            return
+        data = {param: self._coerce(value)} if param else {}
+        self._logger.info("action -> %s.%s %s", feature, action, data)
+        loop = asyncio.get_running_loop()
+        try:
+            await loop.run_in_executor(None, self._set_property_blocking, device, feature, action, data)
+        except Exception as e:
+            self._logger.error("échec action %s.%s : %s: %s", feature, action, type(e).__name__, e)
+            self._logger.debug("trace action :\n%s", traceback.format_exc())
+            return
+        self._logger.info("action %s.%s OK, rafraîchissement", feature, action)
+        # Rafraîchit les valeurs après la commande (l'API peut être asynchrone : valeur définitive
+        # au cycle suivant si "pending").
+        await self._poll_all()
 
 
 if __name__ == "__main__":

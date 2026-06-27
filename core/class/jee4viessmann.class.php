@@ -305,7 +305,21 @@ class jee4viessmann extends eqLogic
                     $cmd->setOrder($order);
                     $cmd->save();
                 }
-                if (($cmd->getType() == 'info') && array_key_exists('value', $c)) {
+
+                if ($cmd->getType() == 'action') {
+                    // Stocke le mapping d'exécution (feature/action/param) + contraintes widget.
+                    $cmd->setConfiguration('feature', isset($c['feature']) ? $c['feature'] : '');
+                    $cmd->setConfiguration('action', isset($c['action']) ? $c['action'] : '');
+                    $cmd->setConfiguration('param', isset($c['param']) ? $c['param'] : '');
+                    if (($c['subType'] ?? '') === 'slider') {
+                        if (isset($c['min'])) $cmd->setConfiguration('minValue', $c['min']);
+                        if (isset($c['max'])) $cmd->setConfiguration('maxValue', $c['max']);
+                        if (isset($c['step'])) $cmd->setConfiguration('step', $c['step']);
+                    } elseif (($c['subType'] ?? '') === 'select' && isset($c['listValue'])) {
+                        $cmd->setConfiguration('listValue', $c['listValue']);
+                    }
+                    $cmd->save();
+                } elseif (array_key_exists('value', $c)) {
                     $eq->checkAndUpdateCmd($c['logicalId'], $c['value']);
                 }
             } catch (Exception $e) {
@@ -334,13 +348,26 @@ class jee4viessmannCmd extends cmd
             'gatewaySerial'  => $eqLogic->getConfiguration('gatewaySerial', ''),
             'deviceId'       => $eqLogic->getConfiguration('deviceId', ''),
         );
-        // L'action est déléguée au démon Python qui appelle l'API viessmann.
+
+        // Valeur selon le type d'action : slider (#slider#), sélecteur (#select#), sinon aucune.
+        $value = null;
+        if ($this->getSubType() == 'slider' && isset($_options['slider'])) {
+            $value = $_options['slider'];
+        } elseif ($this->getSubType() == 'select' && isset($_options['select'])) {
+            $value = $_options['select'];
+        } elseif (isset($_options['value'])) {
+            $value = $_options['value'];
+        }
+
+        // L'action est déléguée au démon Python qui appelle le setter de l'API viessmann.
         jee4viessmann::sendToDaemon(array(
             'type'      => 'action',
             'device'    => $device,
+            'feature'   => $this->getConfiguration('feature', ''),
+            'action'    => $this->getConfiguration('action', ''),
+            'param'     => $this->getConfiguration('param', ''),
+            'value'     => $value,
             'logicalId' => $this->getLogicalId(),
-            'subType'   => $this->getSubType(),
-            'options'   => $_options,
         ));
     }
 }

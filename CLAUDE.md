@@ -73,14 +73,15 @@ Dans Jeedom (conteneur) : installer les dépendances (onglet santé/dépendances
 et crée `resources/python_venv`), activer le plugin, créer un équipement avec les identifiants.
 Logs : `jee4viessmann` (PHP) et `jee4viessmannd` (démon).
 
-## État (POC compilable, NON testé sur device réel)
-Fait : structure plugin, plomberie PHP↔Python, auth/découverte PyViCare, polling + génération des
-commandes **info** depuis le typage, chiffrement identifiants.
+## État (POC compilable)
+Fait : structure plugin, plomberie PHP↔Python, auth/découverte PyViCare (compte unique en config plugin),
+polling + génération des commandes **info** depuis le typage, **regroupement en sous-équipements** par
+sous-système (`classify`), noms **FR** (`humanize`/`TERM_FR`), unités/historisation/visibilité,
+**commandes d'action** (slider/select/bouton) générées depuis le bloc `commands` de l'API et exécutées
+via `service.setProperty(feature, action, {param: value})`.
 
 ## TODO (par priorité)
-1. `execute_action()` (démon) : aiguiller vers les setters PyViCare (setMode, setTargetTemperature…).
-2. Générer les commandes **d'action** (boutons enum, sliders) depuis `commands`/`constraints` de l'API.
-3. Robustesse démon : reconnexion/backoff, gestion HTTP 4xx/quota, heartbeat vers Jeedom.
+1. Robustesse démon : reconnexion/backoff, gestion HTTP 4xx/quota, heartbeat vers Jeedom.
 4. Sécurité socket (actuellement localhost sans auth) ; envisager apikey aussi sur le socket.
 5. UX : noms lisibles / `logicalId` stables si besoin (sinon technique brut). array/Schedule.
 6. Tests : démarrage démon en conteneur sans device, puis avec compte Viessmann réel.
