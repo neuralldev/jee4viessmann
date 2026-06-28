@@ -546,6 +546,11 @@ class Jee4Viessmann(BaseDaemon):
     def _is_device_error(cls, e) -> bool:
         return type(e).__name__ in cls._DEVICE_ERROR_NAMES
 
+    @staticmethod
+    def _is_device_offline(e) -> bool:
+        """DEVICE_OFFLINE : état opérationnel attendu (PAC/appareil éteint), pas une erreur."""
+        return type(e).__name__ == "PyViCareDeviceCommunicationError" and "DEVICE_OFFLINE" in str(e)
+
     def _is_paused(self) -> bool:
         if self._paused_until is None:
             return False
@@ -611,6 +616,11 @@ class Jee4Viessmann(BaseDaemon):
             # Viessmann) : la session OAuth reste valide. On saute juste ce device pour ce
             # cycle — surtout PAS de self._vicare = None, qui forcerait une ré-auth à CHAQUE
             # cycle et cramerait le quota API. Seules les erreurs d'auth invalident la session.
+            if self._is_device_offline(e):
+                # Appareil simplement éteint : état attendu, on n'inonde pas le log.
+                self._logger.info("device %s : hors-ligne, on réessaie au prochain cycle",
+                                  ident["deviceId"])
+                return
             if self._is_device_error(e):
                 self._logger.warning(
                     "device %s : injoignable (%s: %s), on réessaie au prochain cycle",
