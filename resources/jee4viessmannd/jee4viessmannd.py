@@ -512,6 +512,18 @@ class Jee4Viessmann(BaseDaemon):
         self._logger.warning("quota API Viessmann atteint : polling en pause jusqu'à %s UTC", reset.isoformat())
         return True
 
+    # Erreurs *device-level* (la session OAuth reste valide) : ne doivent pas
+    # invalider self._vicare ni déclencher de ré-auth (cf. _poll_device).
+    _DEVICE_ERROR_NAMES = frozenset({
+        "PyViCareDeviceCommunicationError",  # DEVICE_OFFLINE (PAC éteinte / gateway injoignable)
+        "PyViCareInternalServerError",       # panne transitoire côté Viessmann
+        "PyViCareNotSupportedFeatureError",
+    })
+
+    @classmethod
+    def _is_device_error(cls, e) -> bool:
+        return type(e).__name__ in cls._DEVICE_ERROR_NAMES
+
     def _is_paused(self) -> bool:
         if self._paused_until is None:
             return False
@@ -572,6 +584,16 @@ class Jee4Viessmann(BaseDaemon):
             features = await loop.run_in_executor(None, self._fetch_blocking, device)
         except Exception as e:
             if self._handle_rate_limit(e):
+                return
+            # Erreur device-level (PAC éteinte, gateway injoignable, panne serveur côté
+            # Viessmann) : la session OAuth reste valide. On saute juste ce device pour ce
+            # cycle — surtout PAS de self._vicare = None, qui forcerait une ré-auth à CHAQUE
+            # cycle et cramerait le quota API. Seules les erreurs d'auth invalident la session.
+            if self._is_device_error(e):
+                self._logger.warning(
+                    "device %s : injoignable (%s: %s), on réessaie au prochain cycle",
+                    ident["deviceId"], type(e).__name__, e)
+                self._logger.debug("trace fetch :\n%s", traceback.format_exc())
                 return
             self._logger.warning(
                 "device %s : échec fetch_all_features (%s: %s), ré-auth au prochain cycle",
