@@ -22,7 +22,7 @@ $stateLabel = isset($stateLabels[$daemonState]) ? $stateLabels[$daemonState] : $
                 <span class="label <?php echo ($daemonState === 'ok') ? 'label-success' : (($daemonState === 'paused') ? 'label-warning' : 'label-default'); ?>">
                     <?php echo ($stateLabel !== '') ? $stateLabel : '{{Inconnu}}'; ?>
                 </span>
-                <?php if ($daemonState === 'paused' && $pausedUntil !== '') { echo ' <small>{{jusqu\'à}} ' . htmlspecialchars($pausedUntil) . ' UTC</small>'; } ?>
+                <?php if ($daemonState === 'paused' && $pausedUntil !== '') { echo ' <small>{{jusqu\'à}} ' . htmlspecialchars($pausedUntil) . '</small>'; } ?>
             </div>
         </div>
         <div class="form-group">

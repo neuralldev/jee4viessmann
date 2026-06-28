@@ -212,7 +212,19 @@ class jee4viessmann extends eqLogic
     {
         config::save('daemonState', isset($data['state']) ? $data['state'] : 'unknown', 'jee4viessmann');
         config::save('lastHeartbeat', date('Y-m-d H:i:s'), 'jee4viessmann');
-        config::save('pausedUntil', isset($data['pausedUntil']) ? $data['pausedUntil'] : '', 'jee4viessmann');
+        // pausedUntil arrive en UTC naïf (datetime.isoformat côté démon) : on le réinterprète
+        // en UTC puis on le réaffiche dans la TZ locale de Jeedom, comme lastHeartbeat.
+        $pausedUntil = '';
+        if (!empty($data['pausedUntil'])) {
+            try {
+                $dt = new DateTime($data['pausedUntil'], new DateTimeZone('UTC'));
+                $dt->setTimezone(new DateTimeZone(date_default_timezone_get()));
+                $pausedUntil = $dt->format('Y-m-d H:i:s');
+            } catch (Exception $e) {
+                $pausedUntil = $data['pausedUntil'];
+            }
+        }
+        config::save('pausedUntil', $pausedUntil, 'jee4viessmann');
         log::add('jee4viessmann', 'debug', 'heartbeat: ' . json_encode($data));
     }
 

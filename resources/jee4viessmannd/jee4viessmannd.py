@@ -29,9 +29,30 @@ Le socle jeedomdaemon gère pour nous : parsing des args (BaseConfig), socket TC
 import asyncio
 import logging
 import re
+import time
 import traceback
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
+
+try:
+    from zoneinfo import ZoneInfo
+    _LOCAL_TZ = ZoneInfo("Europe/Paris")  # gère CET/CEST (GMT+1 hiver, GMT+2 été)
+except Exception:
+    _LOCAL_TZ = timezone(timedelta(hours=1))  # repli : GMT+1 fixe si tzdata absent
+
+
+def _use_local_log_time() -> None:
+    """Force l'horodatage des logs (asctime de jeedomdaemon) en heure locale Europe/Paris.
+
+    jeedomdaemon configure le logging avec le converter par défaut (time.localtime), qui
+    dépend de la TZ du conteneur — souvent fausse. Le converter est lu à chaque formatage,
+    donc le surcharger ici suffit pour toutes les lignes suivantes, sans toucher la lib.
+    """
+    def _local_converter(secs=None):
+        return datetime.fromtimestamp(secs if secs is not None else time.time(), _LOCAL_TZ).timetuple()
+    # staticmethod : sinon, assignée comme attribut de classe, la fonction se lierait à
+    # l'instance Formatter et recevrait un 'self' parasite (converter est appelé avec un arg).
+    logging.Formatter.converter = staticmethod(_local_converter)
 
 from jeedomdaemon.base_daemon import BaseDaemon
 from jeedomdaemon.base_config import BaseConfig
@@ -423,6 +444,7 @@ class Jee4Viessmann(BaseDaemon):
         # pour ne garder que nos lignes de synthèse.
         for name in ("PyViCare", "urllib3", "authlib", "requests", "asyncio"):
             logging.getLogger(name).setLevel(logging.WARNING)
+        _use_local_log_time()  # horodatage des logs en heure locale (cf. _use_local_log_time)
         self._poll_task = asyncio.create_task(self._poll_loop())
         self._logger.info("démon prêt (cyclepoll=%ss)", self._config.cyclepoll)
 
