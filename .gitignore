@@ -227,5 +227,7 @@ resources/venv/
 # Le « / » initial limite la règle à la racine — docs/fr_FR/*.md reste suivi et publié
 # (cibles des liens documentation/changelog de plugin_info/info.json).
 /*.md
+# Exception : le README est la vitrine du dépôt GitHub, il doit être publié.
+!/README.md
 .claude
 .gitignore

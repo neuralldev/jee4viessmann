@@ -9,8 +9,8 @@
     "hasDependency": true,
     "hasOwnDeamon": true,
     "maxDependancyInstallTime": 60,
-    "changelog": "https://github.com/neuralldev/jee4viessmann/blob/master/docs/#language#/changelog.md",
-    "documentation": "https://github.com/neuralldev/jee4viessmann/blob/master/docs/#language#/index.md",
+    "changelog": "https://github.com/neuralldev/jee4viessmann/blob/continuous/docs/#language#/changelog.md",
+    "documentation": "https://github.com/neuralldev/jee4viessmann/blob/continuous/docs/#language#/index.md",
     "language": ["fr_FR"],
     "compatibility": ["rpi", "mobile", "v4"]
 }
