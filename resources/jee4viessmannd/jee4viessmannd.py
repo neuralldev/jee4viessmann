@@ -41,6 +41,27 @@ except Exception:
     _LOCAL_TZ = timezone(timedelta(hours=1))  # repli : GMT+1 fixe si tzdata absent
 
 
+def _utcnow() -> datetime:
+    """Instant courant en UTC *aware*.
+
+    datetime.utcnow() est déprécié depuis Python 3.12 et renvoie un naïf : mélangé à un
+    datetime aware, toute comparaison lève TypeError. On travaille donc uniquement en aware.
+    """
+    return datetime.now(timezone.utc)
+
+
+def _as_utc(dt: datetime) -> datetime:
+    """Normalise un datetime en UTC aware.
+
+    PyViCare construit aujourd'hui limitResetDate avec utcfromtimestamp() -> naïf UTC ; le jour
+    où la lib passera en aware (correctif attendu de la dépréciation), cette fonction absorbe
+    le changement au lieu de faire exploser la comparaison de _is_paused().
+    """
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 def _use_local_log_time() -> None:
     """Force l'horodatage des logs (asctime de jeedomdaemon) en heure locale Europe/Paris.
 
@@ -387,7 +408,15 @@ def feature_to_actions(feature_entry: dict) -> list:
 
 
 def finalize_commands(commands: list) -> list:
-    """Garantit l'unicité des noms (Jeedom l'impose) et fixe l'ordre d'affichage."""
+    """Garantit l'unicité des noms (Jeedom l'impose) et fixe l'ordre d'affichage.
+
+    Tri préalable par logicalId : ni le suffixe de dédup (« Truc 2 ») ni l'ordre ne doivent
+    dépendre de l'ordre d'itération de l'API. Sans ça, un simple réordonnancement côté
+    Viessmann fait sauter le suffixe d'une commande à l'autre et applyCommands() renomme
+    puis réordonne tout l'équipement en base au cycle suivant. Le logicalId dérive du chemin
+    de la feature : le tri regroupe naturellement les commandes d'une même feature.
+    """
+    commands = sorted(commands, key=lambda c: c["logicalId"])
     seen = {}
     for i, c in enumerate(commands):
         base = c["name"]
@@ -473,25 +502,27 @@ class Jee4Viessmann(BaseDaemon):
     def _current_state(self) -> str:
         if not self._account:
             return "no_account"
-        if self._paused_until is not None and datetime.utcnow() < self._paused_until:
+        if self._paused_until is not None and _utcnow() < self._paused_until:
             return "paused"
         if self._vicare is not None:
             return "ok"
         return "connecting"
 
     async def _send_heartbeat(self) -> None:
-        payload = {
-            "type": "heartbeat",
-            "state": self._current_state(),
-            "ts": datetime.utcnow().isoformat(),
-            "cyclepoll": self._config.cyclepoll,
-        }
-        if self._paused_until is not None:
-            payload["pausedUntil"] = self._paused_until.isoformat()
+        # Tout est dans le try : le heartbeat est purement informatif, il ne doit sous aucun
+        # prétexte remonter une exception dans la boucle de poll (cf. _poll_loop).
         try:
+            payload = {
+                "type": "heartbeat",
+                "state": self._current_state(),
+                "ts": _utcnow().isoformat(),
+                "cyclepoll": self._config.cyclepoll,
+            }
+            if self._paused_until is not None:
+                payload["pausedUntil"] = self._paused_until.isoformat()
             await self.send_to_jeedom(payload)
         except Exception as e:
-            self._logger.debug("heartbeat non envoyé : %s", e)
+            self._logger.debug("heartbeat non envoyé : %s: %s", type(e).__name__, e)
 
     # ------------------------------------------------------------------ #
     #  PyViCare (bloquant) déporté dans un executor
@@ -527,8 +558,10 @@ class Jee4Viessmann(BaseDaemon):
         if type(e).__name__ != "PyViCareRateLimitError":
             return False
         reset = getattr(e, "limitResetDate", None)
-        if not isinstance(reset, datetime):
-            reset = datetime.utcnow() + timedelta(hours=1)
+        if isinstance(reset, datetime):
+            reset = _as_utc(reset)  # PyViCare renvoie un naïf UTC -> on le rend aware
+        else:
+            reset = _utcnow() + timedelta(hours=1)
         self._paused_until = reset
         self._vicare = None
         self._logger.warning("quota API Viessmann atteint : polling en pause jusqu'à %s UTC", reset.isoformat())
@@ -554,7 +587,7 @@ class Jee4Viessmann(BaseDaemon):
     def _is_paused(self) -> bool:
         if self._paused_until is None:
             return False
-        if datetime.utcnow() >= self._paused_until:
+        if _utcnow() >= self._paused_until:
             self._logger.info("fin de pause quota, reprise du polling")
             self._paused_until = None
             return False
@@ -583,7 +616,7 @@ class Jee4Viessmann(BaseDaemon):
                     "'http://localhost:4200/', incompatible avec PyViCare).")
             self._logger.debug("trace auth :\n%s", traceback.format_exc())
             # Backoff : repousse la prochaine tentative (multiples du cyclepoll).
-            self._paused_until = datetime.utcnow() + timedelta(seconds=self._config.cyclepoll * self._auth_backoff)
+            self._paused_until = _utcnow() + timedelta(seconds=self._config.cyclepoll * self._auth_backoff)
             return None
         self._auth_backoff = 0
         if not getattr(vicare, "devices", None):
@@ -668,15 +701,19 @@ class Jee4Viessmann(BaseDaemon):
             await self._send_heartbeat()  # battement initial
             while True:
                 await asyncio.sleep(self._config.cyclepoll)
+                # Le try couvre TOUT le corps du cycle (poll *et* heartbeat) : une exception
+                # échappée ici sortirait du while et arrêterait le polling définitivement —
+                # démon toujours vivant et répondant au socket, mais plus aucune donnée,
+                # panne silencieuse jusqu'au prochain redémarrage.
                 try:
                     await self._poll_all()
+                    await self._send_heartbeat()  # à chaque cycle, même en pause quota
                 except asyncio.CancelledError:
                     raise
                 except Exception as e:
                     # Le démon ne doit jamais mourir sur une erreur de cycle.
                     self._logger.error("erreur cycle de polling : %s: %s", type(e).__name__, e)
                     self._logger.debug("trace cycle :\n%s", traceback.format_exc())
-                await self._send_heartbeat()  # à chaque cycle, même en pause quota
         except asyncio.CancelledError:
             self._logger.info("boucle de poll arrêtée")
 

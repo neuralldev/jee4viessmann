@@ -93,7 +93,14 @@
       if (raw) { raw = raw.toLowerCase(); if (cfg.programs[raw]) return raw; }
       return cfg.active || Object.keys(cfg.programs)[0] || 'normal';
     }
-    function setpointOf(p) { var P = cfg.programs[p] || {}; var v = num(P.tempCmd);
+    // Consigne en cours de réglage (clics ± non encore envoyés, ou envoyés mais pas encore
+    // confirmés par l'API qui est asynchrone). Tant qu'elle existe, elle prime sur la valeur
+    // serveur : sinon un cycle de poll ramènerait l'ancienne consigne sous les doigts.
+    var pendProg = null, pendVal = null, sendTimer = null, holdTimer = null;
+    var SEND_DELAY = 900, HOLD_MAX = 60000;
+
+    function setpointOf(p) { if (pendProg === p && pendVal != null) return pendVal;
+      var P = cfg.programs[p] || {}; var v = num(P.tempCmd);
       return v != null ? v : (P.temp != null ? P.temp : 20); }
     function isOn() { var m = txt(cfg.modeInfoCmd); return cfg.modeInfoCmd == null ? true : !(m && m.toLowerCase() === 'standby'); }
 
@@ -139,11 +146,32 @@
 
     $('.jee4v-minus').addEventListener('click', function () { step(-0.5); });
     $('.jee4v-plus').addEventListener('click', function () { step(0.5); });
+
+    // Un clic = un appel API (setProperty) + un re-poll complet du device côté démon. Sans
+    // anti-rebond, passer de 19 à 21,5 °C brûlait 10 requêtes sur un quota Viessmann journalier
+    // très serré. On peint immédiatement, on n'envoie que la valeur finale de la rafale.
     function step(d) {
       var ap = activeProg(), P = cfg.programs[ap] || {};
-      var nv = Math.min(MAX, Math.max(MIN, Math.round((setpointOf(ap) + d) * 2) / 2));
-      paint(nv, isOn());
-      if (P.setTempCmd != null) exec(P.setTempCmd, { slider: nv });
+      if (P.setTempCmd == null) return;   // consigne non pilotable : ne pas faire semblant
+      pendProg = ap;
+      pendVal = Math.min(MAX, Math.max(MIN, Math.round((setpointOf(ap) + d) * 2) / 2));
+      paint(pendVal, isOn());
+      if (sendTimer) clearTimeout(sendTimer);
+      sendTimer = setTimeout(flush, SEND_DELAY);
+    }
+    function flush() {
+      sendTimer = null;
+      if (pendProg == null) return;
+      var P = cfg.programs[pendProg] || {};
+      if (P.setTempCmd != null) exec(P.setTempCmd, { slider: pendVal });
+      // La consigne affichée reste la nôtre jusqu'à confirmation par le démon. Garde-fou si
+      // aucune mise à jour n'arrive (ex. valeur identique à celle déjà connue de l'API).
+      if (holdTimer) clearTimeout(holdTimer);
+      holdTimer = setTimeout(function () { clearPending(); render(); }, HOLD_MAX);
+    }
+    function clearPending() {
+      pendProg = null; pendVal = null;
+      if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
     }
 
     root.querySelectorAll('.jee4v-seg button').forEach(function (b) {
@@ -172,6 +200,11 @@
       if (id == null) return;
       jeedom.cmd.addUpdateFunction(id, function (_o) {
         vals[_o.cmd_id] = (_o.display_value != null && _o.display_value !== '') ? _o.display_value : _o.value;
+        // Le démon confirme (ou corrige) la consigne : on lâche la valeur locale. Sauf si une
+        // rafale de clics est encore en cours, auquel cas la saisie de l'utilisateur prime.
+        if (pendProg != null && sendTimer == null && (cfg.programs[pendProg] || {}).tempCmd == _o.cmd_id) {
+          clearPending();
+        }
         render();
       });
     });

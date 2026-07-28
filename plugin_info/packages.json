@@ -5,26 +5,13 @@
         "python3-pip": {}
     },
     "pip3": {
-        "jeedomdaemon": {},
-        "PyViCare": {},
-        "authlib": {},
-        "deprecated": {},
-        "wrapt": {},
-        "requests": {},
-        "cryptography": {},
-        "cffi": {},
-        "pycparser": {},
-        "charset-normalizer": {},
-        "idna": {},
-        "urllib3": {},
-        "certifi": {},
-        "aiohttp": {},
-        "aiohappyeyeballs": {},
-        "aiosignal": {},
-        "attrs": {},
-        "frozenlist": {},
-        "multidict": {},
-        "propcache": {},
-        "yarl": {}
+        "jeedomdaemon": {
+            "version": ">=1.2.9",
+            "remark": "Socle du démon (BaseDaemon/BaseConfig). Tire aiohttp et ses dépendances."
+        },
+        "PyViCare": {
+            "version": ">=2.60",
+            "remark": "Client API Viessmann. Tire authlib, requests, deprecated et leurs dépendances."
+        }
     }
 }

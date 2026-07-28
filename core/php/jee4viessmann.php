@@ -44,7 +44,11 @@ try {
         jee4viessmann::pushData($data);
     }
     echo 'ok';
-} catch (Exception $e) {
+} catch (Throwable $e) {
+    // Throwable et pas Exception : une Error (TypeError, argument manquant...) dans pushData
+    // s'échapperait en fatal PHP, donc en réponse HTML 500 que le démon ne sait pas interpréter.
+    // On garde un 400 propre et une trace exploitable côté log.
     http_response_code(400);
+    log::add('jee4viessmann', 'error', 'callback : ' . $e->getMessage());
     echo $e->getMessage();
 }

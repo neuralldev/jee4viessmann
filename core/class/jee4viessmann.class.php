@@ -294,6 +294,18 @@ class jee4viessmann extends eqLogic
     /** Crée les commandes manquantes (typage API) puis met à jour les valeurs info. */
     protected static function applyCommands($eq, $commands)
     {
+        // Pose une valeur de configuration uniquement si elle change réellement, et signale
+        // le changement. Sans ça, chaque commande d'action était réécrite en base à *chaque*
+        // cycle de polling (720 UPDATE/jour/commande avec le cyclePoll par défaut).
+        // Comparaison souple : la configuration fait un aller-retour JSON en base ('12' vs 12).
+        $setCfg = function ($cmd, $key, $value) {
+            if ($cmd->getConfiguration($key, null) != $value) {
+                $cmd->setConfiguration($key, $value);
+                return true;
+            }
+            return false;
+        };
+
         foreach ($commands as $c) {
             if (!isset($c['logicalId'])) {
                 continue;
@@ -335,7 +347,6 @@ class jee4viessmann extends eqLogic
                     $cmd->setSubType($subType);
                     $cmd->setIsVisible($visible);
                     $cmd->setOrder($order);
-                    $cmd->save();
                 }
 
                 // Widget graphique éventuel (ex. « thermomètre » pour les températures du
@@ -346,40 +357,53 @@ class jee4viessmann extends eqLogic
                     if ($cmd->getTemplate('dashboard') != $tpl || $cmd->getTemplate('mobile') != $tpl) {
                         $cmd->setTemplate('dashboard', $tpl);
                         $cmd->setTemplate('mobile', $tpl);
-                        $cmd->save();
+                        $changed = true;
                     }
-                    if (isset($c['min']) && $cmd->getConfiguration('minValue') != $c['min']) {
-                        $cmd->setConfiguration('minValue', $c['min']);
-                        $cmd->save();
+                    if (isset($c['min'])) {
+                        $changed = $setCfg($cmd, 'minValue', $c['min']) || $changed;
                     }
-                    if (isset($c['max']) && $cmd->getConfiguration('maxValue') != $c['max']) {
-                        $cmd->setConfiguration('maxValue', $c['max']);
-                        $cmd->save();
+                    if (isset($c['max'])) {
+                        $changed = $setCfg($cmd, 'maxValue', $c['max']) || $changed;
                     }
                 }
 
-                if ($cmd->getType() == 'action') {
+                if ($type == 'action') {
                     // Stocke le mapping d'exécution (feature/action/param) + contraintes widget.
-                    $cmd->setConfiguration('feature', isset($c['feature']) ? $c['feature'] : '');
-                    $cmd->setConfiguration('action', isset($c['action']) ? $c['action'] : '');
-                    $cmd->setConfiguration('param', isset($c['param']) ? $c['param'] : '');
-                    if (($c['subType'] ?? '') === 'slider') {
-                        if (isset($c['min'])) $cmd->setConfiguration('minValue', $c['min']);
-                        if (isset($c['max'])) $cmd->setConfiguration('maxValue', $c['max']);
-                        if (isset($c['step'])) $cmd->setConfiguration('step', $c['step']);
-                    } elseif (($c['subType'] ?? '') === 'select' && isset($c['listValue'])) {
-                        $cmd->setConfiguration('listValue', $c['listValue']);
+                    // Ces valeurs sont stables d'un cycle à l'autre : on ne réécrit qu'en cas
+                    // de changement réel (cf. $setCfg), sinon rien ne part en base.
+                    $changed = $setCfg($cmd, 'feature', isset($c['feature']) ? $c['feature'] : '') || $changed;
+                    $changed = $setCfg($cmd, 'action', isset($c['action']) ? $c['action'] : '') || $changed;
+                    $changed = $setCfg($cmd, 'param', isset($c['param']) ? $c['param'] : '') || $changed;
+                    if ($subType === 'slider') {
+                        if (isset($c['min'])) {
+                            $changed = $setCfg($cmd, 'minValue', $c['min']) || $changed;
+                        }
+                        if (isset($c['max'])) {
+                            $changed = $setCfg($cmd, 'maxValue', $c['max']) || $changed;
+                        }
+                        if (isset($c['step'])) {
+                            $changed = $setCfg($cmd, 'step', $c['step']) || $changed;
+                        }
+                    } elseif ($subType === 'select' && isset($c['listValue'])) {
+                        $changed = $setCfg($cmd, 'listValue', $c['listValue']) || $changed;
                     }
                     // Lie l'action à la commande info qu'elle pilote : le widget (slider/select)
                     // affiche alors la valeur courante au lieu de partir de zéro.
                     if (!empty($c['link'])) {
                         $linked = $eq->getCmd(null, $c['link']);
-                        if (is_object($linked)) {
+                        if (is_object($linked) && $cmd->getValue() != $linked->getId()) {
                             $cmd->setValue($linked->getId());
+                            $changed = true;
                         }
                     }
+                }
+
+                // Un seul save() par commande et par cycle, uniquement si quelque chose a bougé.
+                if ($changed) {
                     $cmd->save();
-                } elseif (array_key_exists('value', $c)) {
+                }
+
+                if ($type != 'action' && array_key_exists('value', $c)) {
                     $eq->checkAndUpdateCmd($c['logicalId'], $c['value']);
                 }
             } catch (Exception $e) {

@@ -218,10 +218,14 @@ __marimo__/
 .streamlit/secrets.toml
 
 # Projet jee4viessman
+# Venv créé et peuplé par Jeedom depuis plugin_info/packages.json (cf. backupExclude()).
+resources/python_venv/
 resources/venv/
 .DS_Store
 *.code-workspace
-CLAUDE.md
-HANDOFF.md
+# Notes de travail à la racine (CLAUDE.md, HANDOFF.md, ARCHITECTURE.md...) : locales.
+# Le « / » initial limite la règle à la racine — docs/fr_FR/*.md reste suivi et publié
+# (cibles des liens documentation/changelog de plugin_info/info.json).
+/*.md
 .claude
 .gitignore
