@@ -388,6 +388,8 @@ class jee4viessmann extends eqLogic
                     $changed = $setCfg($cmd, 'feature', isset($c['feature']) ? $c['feature'] : '') || $changed;
                     $changed = $setCfg($cmd, 'action', isset($c['action']) ? $c['action'] : '') || $changed;
                     $changed = $setCfg($cmd, 'param', isset($c['param']) ? $c['param'] : '') || $changed;
+                    // Valeur figée d'un bouton (ex. un bouton par mode du thermostat -> setMode(mode)).
+                    $changed = $setCfg($cmd, 'fixedValue', isset($c['fixedValue']) ? $c['fixedValue'] : '') || $changed;
                     if ($subType === 'slider') {
                         if (isset($c['min'])) {
                             $changed = $setCfg($cmd, 'minValue', $c['min']) || $changed;
@@ -662,6 +664,8 @@ class jee4viessmannCmd extends cmd
             $value = $_options['select'];
         } elseif (isset($_options['value'])) {
             $value = $_options['value'];
+        } elseif ($this->getConfiguration('fixedValue', '') !== '') {
+            $value = $this->getConfiguration('fixedValue');
         }
 
         // L'action est déléguée au démon Python qui appelle le setter de l'API viessmann.

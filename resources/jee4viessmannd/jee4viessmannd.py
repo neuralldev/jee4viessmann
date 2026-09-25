@@ -407,6 +407,187 @@ def feature_to_actions(feature_entry: dict) -> list:
     return actions
 
 
+# Défauts de l'appareil : features « liste » (ignorées par feature_to_commands) synthétisées en
+# 3 commandes sur un équipement dédié. Entrée API : {errorCode, priority, timestamp, ...} — pas
+# de libellé texte côté Viessmann, d'où code + gravité traduite + date.
+ERROR_FEATURES = ("device.messages.errors.raw", "heating.errors.active")
+ERROR_GROUP = ("defauts", "Défauts")
+PRIORITY_FR = {
+    "criticalError": "critique",
+    "error": "erreur",
+    "warning": "avertissement",
+    "info": "information",
+    "status": "état",
+    "serviceHint": "entretien",
+}
+
+
+def _error_local_time(ts: str) -> str:
+    """Horodatage API (ISO UTC, suffixe Z) -> heure locale lisible ; brut si illisible."""
+    try:
+        dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+        return _as_utc(dt).astimezone().strftime("%Y-%m-%d %H:%M")
+    except (TypeError, ValueError):
+        return str(ts or "")
+
+
+def error_entries(feature_entry: dict):
+    """Entrées de défaut d'une feature, ou None si la feature n'est pas une liste de défauts."""
+    if feature_entry.get("feature") not in ERROR_FEATURES or not feature_entry.get("isEnabled", False):
+        return None
+    entries = ((feature_entry.get("properties") or {}).get("entries") or {}).get("value")
+    return [e for e in entries if isinstance(e, dict)] if isinstance(entries, list) else []
+
+
+def errors_to_commands(entries: list) -> list:
+    """3 commandes info : défaut actif (0/1), nombre de défauts, dernier défaut (texte)."""
+    last = "Aucun défaut"
+    if entries:
+        e = max(entries, key=lambda x: str(x.get("timestamp", "")))
+        prio = e.get("priority", "")
+        last = "%s - %s (%s)" % (e.get("errorCode", "?"), PRIORITY_FR.get(prio, prio or "?"),
+                                 _error_local_time(e.get("timestamp")))
+    gkey, glabel = ERROR_GROUP
+    common = {"cmdType": "info", "unit": "", "genericType": "", "visible": 1,
+              "group": gkey, "groupLabel": glabel}
+    return [
+        {**common, "logicalId": "errors_active", "name": "Défaut actif",
+         "subType": "binary", "historized": 1, "value": 1 if entries else 0},
+        {**common, "logicalId": "errors_count", "name": "Nombre de défauts",
+         "subType": "numeric", "historized": 1, "value": len(entries)},
+        {**common, "logicalId": "errors_last", "name": "Dernier défaut",
+         "subType": "string", "historized": 0, "value": last},
+    ]
+
+
+# Thermostat (Homebridge / HomeKit, assistants vocaux) : équipement dédié par circuit, composé de
+# commandes synthétiques portant les generic_type THERMOSTAT_* du core. Ces types ne peuvent pas
+# être posés à la main (applyCommands réécrit generic_type à chaque cycle) : le démon les émet.
+# La consigne pilotée est celle du programme ACTIF : feature « @active » résolue par le démon à
+# l'exécution (cf. _thermo_targets), le programme actif changeant au fil du planning.
+ACTIVE_SETPOINT_SUFFIX = ".operating.programs.@active"
+MODE_FR = {
+    "standby": "Arrêt",
+    "heating": "Chauffage",
+    "dhw": "ECS seule",
+    "dhwAndHeating": "ECS et chauffage",
+    "cooling": "Rafraîchissement",
+    "heatingCooling": "Chauffage et rafraîchissement",
+    "dhwAndHeatingCooling": "ECS chauffage et rafraîchissement",
+    "forcedReduced": "Réduit forcé",
+    "forcedNormal": "Normal forcé",
+}
+
+
+def _prop_value(entry, prop):
+    """Valeur d'une propriété d'une feature active, None si absente/inactive."""
+    if not entry or not entry.get("isEnabled", False):
+        return None
+    meta = (entry.get("properties") or {}).get(prop)
+    return meta.get("value") if isinstance(meta, dict) else None
+
+
+def _set_temp_def(entry):
+    """(nom_du_commande, nom_param, contraintes) de la consigne d'un programme, ou None."""
+    if not entry or not entry.get("isEnabled", False):
+        return None
+    for cname, cdef in (entry.get("commands") or {}).items():
+        if cname.lower() in ("settemperature", "settargettemperature") and isinstance(cdef, dict):
+            params = cdef.get("params") or {}
+            if len(params) == 1:
+                pname, pdef = next(iter(params.items()))
+                return cname, pname, (pdef or {}).get("constraints") or {}
+    return None
+
+
+def thermostat_commands(fmap: dict):
+    """Commandes des équipements « Thermostat » (un par circuit actif) + cibles de consigne.
+
+    fmap : {nom_feature: entrée_API}. Retourne (commandes, {feature_@active: (feature, action, param)}).
+    """
+    commands, targets = [], {}
+    circuits = sorted({int(m.group(1)) for f in fmap
+                       for m in [re.match(r"heating\.circuits\.(\d+)\.operating\.programs\.active$", f)] if m})
+    outside = _prop_value(fmap.get("heating.sensors.temperature.outside"), "value")
+    for n in circuits:
+        base = "heating.circuits.%d" % n
+        active_prog = _prop_value(fmap.get(base + ".operating.programs.active"), "value")
+        if active_prog is None:
+            continue
+        gkey = "thermostat_%d" % n
+        glabel = "Thermostat" if n == 0 else "Thermostat circuit %d" % n
+        common = {"unit": "", "genericType": "", "visible": 1, "group": gkey, "groupLabel": glabel,
+                  "historized": 0}
+
+        # Consigne du programme actif ; repli sur « normal » si le programme actif n'a pas de
+        # consigne propre (standby, eco dérivé...) — c'est alors la consigne qui s'applique.
+        prog_feat = "%s.operating.programs.%s" % (base, active_prog)
+        if _set_temp_def(fmap.get(prog_feat)) is None:
+            prog_feat = base + ".operating.programs.normal"
+        setpoint = _prop_value(fmap.get(prog_feat), "temperature")
+        sdef = _set_temp_def(fmap.get(prog_feat))
+
+        # Ambiante : sonde d'ambiance du circuit ; à défaut la consigne (HomeKit exige une
+        # température courante, et une PAC sans sonde d'ambiance n'en fournit pas).
+        room = _prop_value(fmap.get(base + ".sensors.temperature.room"), "value")
+        if room is None:
+            room = setpoint
+        if room is not None:
+            commands.append({**common, "logicalId": "thermo_temperature", "name": "Température ambiante",
+                             "cmdType": "info", "subType": "numeric", "unit": "°C", "historized": 1,
+                             "genericType": "THERMOSTAT_TEMPERATURE", "value": room})
+        if setpoint is not None:
+            commands.append({**common, "logicalId": "thermo_setpoint", "name": "Consigne",
+                             "cmdType": "info", "subType": "numeric", "unit": "°C", "historized": 1,
+                             "genericType": "THERMOSTAT_SETPOINT", "value": setpoint})
+        if sdef is not None:
+            cname, pname, cons = sdef
+            active_feat = base + ACTIVE_SETPOINT_SUFFIX
+            targets[active_feat] = (prog_feat, cname, pname)
+            commands.append({**common, "logicalId": "thermo_set_setpoint", "name": "Régler consigne",
+                             "cmdType": "action", "subType": "slider", "unit": "°C",
+                             "genericType": "THERMOSTAT_SET_SETPOINT",
+                             "feature": active_feat, "action": cname, "param": pname,
+                             "min": cons.get("min", 10), "max": cons.get("max", 30),
+                             "step": cons.get("stepping", 0.5), "link": "thermo_setpoint"})
+        if outside is not None:
+            commands.append({**common, "logicalId": "thermo_outdoor", "name": "Température extérieure",
+                             "cmdType": "info", "subType": "numeric", "unit": "°C",
+                             "genericType": "THERMOSTAT_TEMPERATURE_OUTDOOR", "value": outside})
+
+        # Mode : info (libellé FR) + un bouton par mode (THERMOSTAT_SET_MODE). Le libellé de
+        # l'info est identique au nom du bouton correspondant (mapping des modes Homebridge).
+        mode_entry = fmap.get(base + ".operating.modes.active")
+        mode = _prop_value(mode_entry, "value")
+        if mode is not None:
+            commands.append({**common, "logicalId": "thermo_mode", "name": "Mode",
+                             "cmdType": "info", "subType": "string",
+                             "genericType": "THERMOSTAT_MODE", "value": MODE_FR.get(mode, mode)})
+        set_mode = ((mode_entry or {}).get("commands") or {}).get("setMode")
+        if isinstance(set_mode, dict):
+            params = set_mode.get("params") or {}
+            if len(params) == 1:
+                pname, pdef = next(iter(params.items()))
+                for m in ((pdef or {}).get("constraints") or {}).get("enum", []):
+                    commands.append({**common, "logicalId": sanitize_logical_id("thermo_set_mode", m),
+                                     "name": clean_name(MODE_FR.get(m, m)), "cmdType": "action",
+                                     "subType": "other", "genericType": "THERMOSTAT_SET_MODE",
+                                     "feature": base + ".operating.modes.active", "action": "setMode",
+                                     "param": pname, "fixedValue": m, "link": ""})
+
+        # État de chauffe : pompe de circulation du circuit en marche.
+        pump = _prop_value(fmap.get(base + ".circulation.pump"), "status")
+        if pump is not None:
+            on = str(pump).lower() == "on"
+            commands.append({**common, "logicalId": "thermo_state", "name": "En chauffe",
+                             "cmdType": "info", "subType": "binary",
+                             "genericType": "THERMOSTAT_STATE", "value": 1 if on else 0})
+            commands.append({**common, "logicalId": "thermo_state_name", "name": "État",
+                             "cmdType": "info", "subType": "string",
+                             "genericType": "THERMOSTAT_STATE_NAME", "value": "Chauffe" if on else "Arrêt"})
+    return commands, targets
+
+
 def finalize_commands(commands: list) -> list:
     """Garantit l'unicité des noms (Jeedom l'impose) et fixe l'ordre d'affichage.
 
@@ -458,6 +639,9 @@ class Jee4Viessmann(BaseDaemon):
         self._poll_task: Optional[asyncio.Task] = None
         self._paused_until: Optional[datetime] = None  # pause polling jusqu'à reset quota (UTC)
         self._auth_backoff = 0        # backoff progressif sur échecs d'auth
+        # Cible réelle de la consigne « programme actif » des thermostats, recalculée à chaque
+        # poll : {(gatewaySerial, deviceId): {feature_@active: (feature, action, param)}}.
+        self._thermo_targets: dict = {}
 
     # ------------------------------------------------------------------ #
     #  Cycle de vie
@@ -667,9 +851,20 @@ class Jee4Viessmann(BaseDaemon):
             self._vicare = None
             return
         commands = []
+        errors = None  # None = l'appareil n'expose aucune feature de défauts
         for entry in features.get("data", []):
             commands.extend(feature_to_commands(entry))
             commands.extend(feature_to_actions(entry))
+            found = error_entries(entry)
+            if found is not None:
+                errors = (errors or []) + found
+        if errors is not None:
+            commands.extend(errors_to_commands(errors))
+        fmap = {e.get("feature"): e for e in features.get("data", []) if isinstance(e, dict)}
+        thermo, targets = thermostat_commands(fmap)
+        commands.extend(thermo)
+        dkey = (ident["gatewaySerial"], ident["deviceId"])
+        self._thermo_targets[dkey] = targets
         if not commands:
             self._logger.debug("device %s (%s) : aucune feature active, ignoré",
                                ident["deviceId"], ident["model"])
@@ -768,6 +963,13 @@ class Jee4Viessmann(BaseDaemon):
         if device is None:
             self._logger.warning("action %s.%s : device %s introuvable", feature, action, ident.get("deviceId"))
             return
+        if feature.endswith(ACTIVE_SETPOINT_SUFFIX):
+            # Consigne thermostat : programme actif connu au dernier poll.
+            target = self._thermo_targets.get((ident.get("gatewaySerial"), ident.get("deviceId")), {}).get(feature)
+            if target is None:
+                self._logger.warning("action %s : programme actif inconnu (pas encore de poll ?)", feature)
+                return
+            feature, action, param = target
         data = {param: self._coerce(value)} if param else {}
         self._logger.info("action -> %s.%s %s", feature, action, data)
         loop = asyncio.get_running_loop()
