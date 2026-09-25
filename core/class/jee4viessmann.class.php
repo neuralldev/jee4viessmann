@@ -32,9 +32,23 @@ class jee4viessmann extends eqLogic
     const JEEDOM_DAEMON_PORT = 55070;
 
     /* ============================ Démon ============================ */
-    /* Les dépendances sont gérées nativement par Jeedom via plugin_info/packages.json
-       (apt python3-pip + pip3 dans resources/python_venv). Pas de dependancy_info/install
-       ni de install.sh : Jeedom crée et peuple le venv tout seul. */
+    /* Dépendances via plugin_info/packages.json : paquets apt + script post-install
+       resources/install_venv.sh qui construit resources/python_venv avec un Python >= 3.10
+       (système s'il convient, sinon Python autonome téléchargé via uv). La section pip3 native
+       n'est pas utilisée : Jeedom créerait le venv avec le python3 système, trop ancien sur
+       certaines installations (PyViCare exige 3.10). */
+
+    /* Appelé par le core quand les paquets apt sont OK : vérifie que le venv existe réellement
+       et importe les dépendances (sinon état « nok » -> Jeedom propose de relancer l'install). */
+    public static function additionnalDependancyCheck()
+    {
+        $python = realpath(__DIR__ . '/../../resources') . '/python_venv/bin/python3';
+        if (!is_executable($python)) {
+            return array('state' => 'nok');
+        }
+        exec(escapeshellarg($python) . ' -c "import jeedomdaemon, PyViCare" 2>/dev/null', $out, $rc);
+        return array('state' => ($rc === 0) ? 'ok' : 'nok');
+    }
 
     public static function deamon_info()
     {
@@ -134,7 +148,7 @@ class jee4viessmann extends eqLogic
 
     public static function backupExclude()
     {
-        return array('resources/python_venv');
+        return array('resources/python_venv', 'resources/python_runtime', 'resources/python_uv');
     }
 
     /* ============================ PHP -> démon (socket) ============================ */

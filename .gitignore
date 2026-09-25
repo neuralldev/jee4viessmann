@@ -220,6 +220,8 @@ __marimo__/
 # Projet jee4viessman
 # Venv créé et peuplé par Jeedom depuis plugin_info/packages.json (cf. backupExclude()).
 resources/python_venv/
+resources/python_runtime/
+resources/python_uv/
 resources/venv/
 .DS_Store
 *.code-workspace
