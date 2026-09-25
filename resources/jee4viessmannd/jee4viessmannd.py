@@ -537,12 +537,12 @@ class Jee4Viessmann(BaseDaemon):
 
     @staticmethod
     def _fetch_blocking(device):
-        return device.service.fetch_all_features()
+        return device.service.fetch_all_features(device.accessor)
 
     @staticmethod
     def _device_identity(device) -> dict:
         """Identité stable d'un device PyViCare (pour mapper vers un eqLogic)."""
-        accessor = device.service.accessor
+        accessor = device.accessor
         return {
             "installationId": accessor.id,
             "gatewaySerial": accessor.serial,
@@ -727,7 +727,7 @@ class Jee4Viessmann(BaseDaemon):
             return None
         for device in vicare.devices:
             if device.getId() == ident.get("deviceId") \
-                    and device.service.accessor.serial == ident.get("gatewaySerial"):
+                    and device.accessor.serial == ident.get("gatewaySerial"):
                 return device
         return None
 
@@ -745,7 +745,7 @@ class Jee4Viessmann(BaseDaemon):
         return value
 
     def _set_property_blocking(self, device, feature, action, data):
-        return device.service.setProperty(feature, action, data)
+        return device.service.setProperty(device.accessor, feature, action, data)
 
     async def _execute_action(self, message: dict) -> None:
         ident = message.get("device", {})
