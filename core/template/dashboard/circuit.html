@@ -21,6 +21,7 @@
   </div>
 
   <div class="jee4v-seg">#segments#</div>
+  <button class="jee4v-act" type="button" style="display:none"></button>
 
   <div class="jee4v-metrics">
     <div class="jee4v-metric jee4v-supwrap"><div class="jee4v-lbl">🌡️ Départ</div><div class="jee4v-val jee4v-msup">—</div></div>
@@ -54,7 +55,12 @@
         + ".jee4v-seg{display:flex;background:rgba(127,127,127,.12);border-radius:13px;padding:4px;margin:8px 0 10px}"
         + ".jee4v-seg button{flex:1;border:0;background:transparent;color:inherit;opacity:.55;font-size:12px;font-weight:600;padding:7px 0;border-radius:10px!important;cursor:pointer}"
         + ".jee4v-seg button .i{display:block;font-size:15px;margin-bottom:1px;opacity:.9}"
-        + ".jee4v-seg button.active{background:var(--jee4v-accent,#f0a330);color:#fff;opacity:1;box-shadow:0 2px 7px rgba(0,0,0,.18)}"
+        + ".jee4v-seg button.sel{background:var(--jee4v-accent,#f0a330);color:#fff;opacity:1;box-shadow:0 2px 7px rgba(0,0,0,.18)}"
+        + ".jee4v-seg button.cur{opacity:1}"
+        + ".jee4v-seg button.cur::after{content:'●';display:block;font-size:7px;line-height:1;margin-top:2px;color:var(--jee4v-accent,#f0a330)}"
+        + ".jee4v-seg button.sel.cur::after{color:#fff}"
+        + ".jee4v-act{display:block;width:100%;margin:-4px 0 10px;border:1.5px solid var(--jee4v-accent,#f0a330);background:transparent;color:inherit;border-radius:10px!important;padding:6px 0;font-size:12px;font-weight:600;cursor:pointer}"
+        + ".jee4v-minus:disabled,.jee4v-plus:disabled{opacity:.3;cursor:default}"
         + ".jee4v-metrics{display:flex;gap:8px;margin-bottom:10px}"
         + ".jee4v-metric{flex:1;background:rgba(127,127,127,.10);border-radius:11px;padding:8px 11px}"
         + ".jee4v-lbl{font-size:10px;opacity:.55;display:flex;align-items:center;gap:5px}.jee4v-val{font-size:16px;font-weight:650;margin-top:2px}"
@@ -88,10 +94,36 @@
     var $ = function (s) { return root.querySelector(s); };
     $('.jee4v-track').setAttribute('d', arc(A0, A0 + SPAN));
 
+    // Programme actif (API) et programme affiché/édité (choisi par un clic sur un segment).
+    // Cliquer un segment ne l'active PAS : on règle sa consigne. L'activation passe par le
+    // bouton dédié. Sans interaction, l'affichage revient au programme actif.
+    var viewProg = null, viewTimer = null, VIEW_IDLE = 45000;
+    // Activation demandée mais pas encore confirmée par le démon : prime sur l'API (sinon le
+    // segment actif clignote vers l'ancien programme jusqu'au prochain poll).
+    var pendActive = null, pendActiveTimer = null;
     function activeProg() {
+      if (pendActive) return pendActive;
       var raw = txt(cfg.activeCmd);
       if (raw) { raw = raw.toLowerCase(); if (cfg.programs[raw]) return raw; }
       return cfg.active || Object.keys(cfg.programs)[0] || 'normal';
+    }
+    function shownProg() { return (viewProg && cfg.programs[viewProg]) ? viewProg : activeProg(); }
+    function touchView() {
+      if (viewTimer) clearTimeout(viewTimer);
+      viewTimer = setTimeout(function () {
+        viewTimer = null;
+        if (sendTimer) { touchView(); return; }   // rafale ± en cours : on attend
+        viewProg = null; render();
+      }, VIEW_IDLE);
+    }
+    // Activation possible : commande 'activate' du programme, ou (programme de base type
+    // « normal », sans activate) désactivation du programme actif.
+    function activationOf(p) {
+      var P = cfg.programs[p] || {};
+      if (P.activateCmd != null) return function () { exec(P.activateCmd); };
+      var AP = cfg.programs[activeProg()] || {};
+      if (AP.deactivateCmd != null) return function () { exec(AP.deactivateCmd); };
+      return null;
     }
     // Consigne en cours de réglage (clics ± non encore envoyés, ou envoyés mais pas encore
     // confirmés par l'API qui est asynchrone). Tant qu'elle existe, elle prime sur la valeur
@@ -101,20 +133,22 @@
 
     function setpointOf(p) { if (pendProg === p && pendVal != null) return pendVal;
       var P = cfg.programs[p] || {}; var v = num(P.tempCmd);
-      return v != null ? v : (P.temp != null ? P.temp : 20); }
+      return v != null ? v : (P.temp != null ? P.temp : null); }   // null = pas de consigne propre
     function isOn() { var m = txt(cfg.modeInfoCmd); return cfg.modeInfoCmd == null ? true : !(m && m.toLowerCase() === 'standby'); }
 
     function paint(set, on) {
-      var col = on ? heat(set) : GREY;
-      root.style.setProperty('--jee4v-accent', on ? heat(set) : GREY);
-      root.style.setProperty('--jee4v-soft', on ? softOf(set) : 'rgba(127,127,127,.14)');
+      var ref = set == null ? MIN : set;
+      var col = on ? heat(ref) : GREY;
+      root.style.setProperty('--jee4v-accent', col);
+      root.style.setProperty('--jee4v-soft', on ? softOf(ref) : 'rgba(127,127,127,.14)');
       $('.jee4v-arc').setAttribute('stroke', col);
-      $('.jee4v-arc').setAttribute('d', arc(A0, A0 + SPAN * frac(set)));
+      $('.jee4v-arc').setAttribute('d', set == null ? '' : arc(A0, A0 + SPAN * frac(set)));
       $('.jee4v-marker').setAttribute('fill', col);
-      $('.jee4v-setval').textContent = set.toFixed(1);
+      $('.jee4v-setval').textContent = set == null ? '--' : set.toFixed(1);
     }
     function render() {
-      var on = isOn(), ap = activeProg(), P = cfg.programs[ap] || {}, set = setpointOf(ap);
+      var on = isOn(), ap = activeProg(), sp = shownProg(), P = cfg.programs[sp] || {}, set = setpointOf(sp);
+      var AP = cfg.programs[ap] || {};
       root.classList.toggle('jee4v-off', !on);
       paint(set, on);
       var room = pos(cfg.roomCmd), sup = pos(cfg.supplyCmd);
@@ -125,8 +159,15 @@
       $('.jee4v-roomval').textContent = room != null ? room.toFixed(1) + '°' : '—';
       $('.jee4v-msup').textContent = sup != null ? Math.round(sup) + '°C' : '—';
       $('.jee4v-supwrap').style.display = (cfg.supplyCmd != null) ? '' : 'none';
-      $('.jee4v-progtag').textContent = '● ' + (P.label || ap);
-      root.querySelectorAll('.jee4v-seg button').forEach(function (b) { b.classList.toggle('active', b.dataset.prog === ap); });
+      $('.jee4v-progtag').textContent = sp === ap ? '● ' + (P.label || sp) : (P.label || sp) + ' · inactif';
+      root.querySelectorAll('.jee4v-seg button').forEach(function (b) {
+        b.classList.toggle('sel', b.dataset.prog === sp);
+        b.classList.toggle('cur', b.dataset.prog === ap);
+      });
+      var act = $('.jee4v-act'), canAct = sp !== ap && activationOf(sp) != null;
+      act.style.display = canAct ? '' : 'none';
+      act.textContent = 'Activer ' + (P.label || sp);
+      $('.jee4v-minus').disabled = $('.jee4v-plus').disabled = (P.setTempCmd == null);
 
       if (cfg.pumpCmd != null) {
         var pv = (txt(cfg.pumpCmd) || '').toLowerCase(), pon = (pv === 'on' || pv === '1' || pv === 'true');
@@ -135,7 +176,7 @@
       } else { $('.jee4v-pump').style.display = 'none'; }
 
       $('.jee4v-power').classList.toggle('on', on);
-      $('.jee4v-sub').textContent = on ? (P.label || ap) : 'Veille';
+      $('.jee4v-sub').textContent = on ? (AP.label || ap) : 'Veille';
       var sel = $('.jee4v-mode select'), mode = txt(cfg.modeInfoCmd); if (sel && mode) sel.value = mode;
     }
 
@@ -151,11 +192,16 @@
     // anti-rebond, passer de 19 à 21,5 °C brûlait 10 requêtes sur un quota Viessmann journalier
     // très serré. On peint immédiatement, on n'envoie que la valeur finale de la rafale.
     function step(d) {
-      var ap = activeProg(), P = cfg.programs[ap] || {};
+      var sp = shownProg(), P = cfg.programs[sp] || {};
       if (P.setTempCmd == null) return;   // consigne non pilotable : ne pas faire semblant
-      pendProg = ap;
-      pendVal = Math.min(MAX, Math.max(MIN, Math.round((setpointOf(ap) + d) * 2) / 2));
+      // Rafale précédente sur un autre programme pas encore partie : on l'envoie d'abord.
+      if (sendTimer && pendProg !== sp) { clearTimeout(sendTimer); flush(); }
+      var lo = P.min != null ? P.min : MIN, hi = P.max != null ? P.max : MAX;
+      var cur = setpointOf(sp); if (cur == null) cur = Math.min(hi, Math.max(lo, 20));
+      pendProg = sp;
+      pendVal = Math.min(hi, Math.max(lo, Math.round((cur + d) * 2) / 2));
       paint(pendVal, isOn());
+      if (viewProg) touchView();
       if (sendTimer) clearTimeout(sendTimer);
       sendTimer = setTimeout(flush, SEND_DELAY);
     }
@@ -174,14 +220,25 @@
       if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
     }
 
+    // Segment = choisir le programme dont on affiche/règle la consigne (pas d'activation).
     root.querySelectorAll('.jee4v-seg button').forEach(function (b) {
       b.addEventListener('click', function () {
-        var p = b.dataset.prog, P = cfg.programs[p] || {};
-        if (P.activateCmd != null) { exec(P.activateCmd); }
-        else { var AP = cfg.programs[activeProg()] || {}; if (AP.deactivateCmd != null) exec(AP.deactivateCmd); }
-        cfg.active = p;
-        root.querySelectorAll('.jee4v-seg button').forEach(function (x) { x.classList.toggle('active', x === b); });
+        var p = b.dataset.prog;
+        viewProg = (p === activeProg()) ? null : p;
+        if (viewProg) touchView(); else if (viewTimer) { clearTimeout(viewTimer); viewTimer = null; }
+        render();
       });
+    });
+
+    $('.jee4v-act').addEventListener('click', function () {
+      var p = shownProg(), run = activationOf(p);
+      if (!run) return;
+      run();
+      pendActive = p; viewProg = null;
+      if (viewTimer) { clearTimeout(viewTimer); viewTimer = null; }
+      if (pendActiveTimer) clearTimeout(pendActiveTimer);
+      pendActiveTimer = setTimeout(function () { pendActive = null; render(); }, HOLD_MAX);
+      render();
     });
 
     var sel = $('.jee4v-mode select');
@@ -200,6 +257,10 @@
       if (id == null) return;
       jeedom.cmd.addUpdateFunction(id, function (_o) {
         vals[_o.cmd_id] = (_o.display_value != null && _o.display_value !== '') ? _o.display_value : _o.value;
+        // Programme actif confirmé (ou refusé) par l'API : on lâche l'état optimiste.
+        if (_o.cmd_id == cfg.activeCmd && pendActive != null) {
+          pendActive = null; if (pendActiveTimer) { clearTimeout(pendActiveTimer); pendActiveTimer = null; }
+        }
         // Le démon confirme (ou corrige) la consigne : on lâche la valeur locale. Sauf si une
         // rafale de clics est encore en cours, auquel cas la saisie de l'utilisateur prime.
         if (pendProg != null && sendTimer == null && (cfg.programs[pendProg] || {}).tempCmd == _o.cmd_id) {

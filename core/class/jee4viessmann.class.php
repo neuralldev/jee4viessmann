@@ -546,9 +546,13 @@ class jee4viessmann extends eqLogic
                     $cfg['programs'][$p]['setTempCmd'] = $id;
                     $mn = $cmd->getConfiguration('minValue', '');
                     $mx = $cmd->getConfiguration('maxValue', '');
-                    if ($mn !== '' && $mx !== '' && !$haveRange) {
-                        $cfg['min'] = 0 + $mn;
-                        $cfg['max'] = 0 + $mx;
+                    if (is_numeric($mn) && is_numeric($mx)) {
+                        // Plage propre au programme (ex. réduit 3-37, normal 10-30) pour borner ±,
+                        // et échelle du cadran = union des plages (tous les programmes y tiennent).
+                        $cfg['programs'][$p]['min'] = 0 + $mn;
+                        $cfg['programs'][$p]['max'] = 0 + $mx;
+                        $cfg['min'] = $haveRange ? min($cfg['min'], 0 + $mn) : 0 + $mn;
+                        $cfg['max'] = $haveRange ? max($cfg['max'], 0 + $mx) : 0 + $mx;
                         $haveRange = true;
                     }
                 } elseif ($action === 'activate') {
