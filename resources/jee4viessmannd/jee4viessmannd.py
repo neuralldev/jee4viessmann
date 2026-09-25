@@ -439,22 +439,42 @@ def error_entries(feature_entry: dict):
     return [e for e in entries if isinstance(e, dict)] if isinstance(entries, list) else []
 
 
-def errors_to_commands(entries: list) -> list:
-    """3 commandes info : défaut actif (0/1), nombre de défauts, dernier défaut (texte)."""
+def error_counter(fmap: dict):
+    """Somme des compteurs device.messages.errors.counter.* (modèles sans liste de défauts,
+       ex. CU401B_S), ou None si l'appareil n'en expose aucun."""
+    total = None
+    for name, entry in fmap.items():
+        if isinstance(name, str) and name.startswith("device.messages.errors.counter."):
+            v = _prop_value(entry, "value")
+            if isinstance(v, (int, float)):
+                total = (total or 0) + v
+    return total
+
+
+def errors_to_commands(entries, counter=None) -> list:
+    """3 commandes info : défaut actif (0/1), nombre de défauts, dernier défaut (texte).
+
+    entries : liste de défauts de l'API (None si l'appareil n'en fournit pas) ; counter : repli
+    sur le compteur de défauts quand la liste est absente (code alors inconnu)."""
     last = "Aucun défaut"
     if entries:
+        count = len(entries)
         e = max(entries, key=lambda x: str(x.get("timestamp", "")))
         prio = e.get("priority", "")
         last = "%s - %s (%s)" % (e.get("errorCode", "?"), PRIORITY_FR.get(prio, prio or "?"),
                                  _error_local_time(e.get("timestamp")))
+    else:
+        count = int(counter or 0) if entries is None else 0
+        if count:
+            last = "%d défaut(s) signalé(s), code non fourni par l'API" % count
     gkey, glabel = ERROR_GROUP
     common = {"cmdType": "info", "unit": "", "genericType": "", "visible": 1,
               "group": gkey, "groupLabel": glabel}
     return [
         {**common, "logicalId": "errors_active", "name": "Défaut actif",
-         "subType": "binary", "historized": 1, "value": 1 if entries else 0},
+         "subType": "binary", "historized": 1, "value": 1 if count else 0},
         {**common, "logicalId": "errors_count", "name": "Nombre de défauts",
-         "subType": "numeric", "historized": 1, "value": len(entries)},
+         "subType": "numeric", "historized": 1, "value": count},
         {**common, "logicalId": "errors_last", "name": "Dernier défaut",
          "subType": "string", "historized": 0, "value": last},
     ]
@@ -858,9 +878,14 @@ class Jee4Viessmann(BaseDaemon):
             found = error_entries(entry)
             if found is not None:
                 errors = (errors or []) + found
-        if errors is not None:
-            commands.extend(errors_to_commands(errors))
         fmap = {e.get("feature"): e for e in features.get("data", []) if isinstance(e, dict)}
+        # Équipement « Défauts » toujours créé pour un générateur (features heating.*), même si
+        # l'API ne fournit pas la liste des défauts : les scénarios/alertes de l'utilisateur ne
+        # doivent pas dépendre du modèle. Pas pour la gateway ni les accessoires (RoomControl...).
+        counter = error_counter(fmap)
+        if errors is not None or counter is not None \
+                or any(isinstance(f, str) and f.startswith("heating.") for f in fmap):
+            commands.extend(errors_to_commands(errors, counter))
         thermo, targets = thermostat_commands(fmap)
         commands.extend(thermo)
         dkey = (ident["gatewaySerial"], ident["deviceId"])
