@@ -134,7 +134,8 @@
     function setpointOf(p) { if (pendProg === p && pendVal != null) return pendVal;
       var P = cfg.programs[p] || {}; var v = num(P.tempCmd);
       return v != null ? v : (P.temp != null ? P.temp : null); }   // null = pas de consigne propre
-    function isOn() { var m = txt(cfg.modeInfoCmd); return cfg.modeInfoCmd == null ? true : !(m && m.toLowerCase() === 'standby'); }
+    var pendPower = null, pendPowerTimer = null;
+    function isOn() { if (pendPower != null) return pendPower; var m = txt(cfg.modeInfoCmd); return cfg.modeInfoCmd == null ? true : !(m && m.toLowerCase().indexOf('standby') !== -1); }
 
     function paint(set, on) {
       var ref = set == null ? MIN : set;
@@ -246,8 +247,13 @@
 
     $('.jee4v-power').addEventListener('click', function () {
       if (cfg.modeCmd == null) return;
-      if (isOn()) { exec(cfg.modeCmd, { select: cfg.modeStandby || 'standby' }); }
-      else if (cfg.modeOn) { exec(cfg.modeCmd, { select: cfg.modeOn }); }
+      var wasOn = isOn(), target = wasOn ? (cfg.modeStandby || 'standby') : cfg.modeOn;
+      if (!target) return;
+      exec(cfg.modeCmd, { select: target });
+      pendPower = !wasOn;   // retour visuel immédiat, levé dès que le mode réel arrive (ou après 60 s)
+      clearTimeout(pendPowerTimer);
+      pendPowerTimer = setTimeout(function () { pendPower = null; render(); }, HOLD_MAX);
+      render();
     });
     if (cfg.modeCmd == null) $('.jee4v-power').style.display = 'none';
 
@@ -257,6 +263,9 @@
       if (id == null) return;
       jeedom.cmd.addUpdateFunction(id, function (_o) {
         vals[_o.cmd_id] = (_o.display_value != null && _o.display_value !== '') ? _o.display_value : _o.value;
+        if (_o.cmd_id == cfg.modeInfoCmd && pendPower != null) {
+          pendPower = null; if (pendPowerTimer) { clearTimeout(pendPowerTimer); pendPowerTimer = null; }
+        }
         // Programme actif confirmé (ou refusé) par l'API : on lâche l'état optimiste.
         if (_o.cmd_id == cfg.activeCmd && pendActive != null) {
           pendActive = null; if (pendActiveTimer) { clearTimeout(pendActiveTimer); pendActiveTimer = null; }

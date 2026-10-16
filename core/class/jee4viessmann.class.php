@@ -621,6 +621,13 @@ class jee4viessmann extends eqLogic
                     $cfg['modeOn'] = $v;
                 }
             }
+            // Mode de remise en marche : de préférence chauffage complet plutôt que le 1er de la liste (ex. ECS seule).
+            foreach (array('dhwAndHeating', 'heating') as $pref) {
+                if (in_array($pref, $modeEnum, true)) {
+                    $cfg['modeOn'] = $pref;
+                    break;
+                }
+            }
             $modeBlock = '<div class="jee4v-mode"><label>Mode</label><select>' . $opts . '</select></div>';
         }
 
