@@ -183,7 +183,7 @@
 
     function exec(id, options) {
       if (id == null) return;
-      if (typeof jeedom !== 'undefined' && jeedom.cmd && jeedom.cmd.execute) jeedom.cmd.execute({ id: id, options: options || null });
+      if (typeof jeedom !== 'undefined' && jeedom.cmd && jeedom.cmd.execute) jeedom.cmd.execute({ id: id, value: options || {} });   // le core lit _params.value (pas options)
     }
 
     $('.jee4v-minus').addEventListener('click', function () { step(-1); });
