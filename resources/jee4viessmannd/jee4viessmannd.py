@@ -954,8 +954,11 @@ class Jee4Viessmann(BaseDaemon):
     @staticmethod
     def _coerce(value):
         """Tente de convertir une valeur slider/select en nombre, sinon laisse tel quel."""
-        if isinstance(value, (int, float)):
+        if isinstance(value, bool) or isinstance(value, int):
             return value
+        if isinstance(value, float):
+            # 19.0 -> 19 : l'API rejette (VALIDATION_ERROR) un flottant là où le stepping est entier.
+            return int(value) if value.is_integer() else value
         if isinstance(value, str):
             try:
                 f = float(value)
@@ -963,6 +966,12 @@ class Jee4Viessmann(BaseDaemon):
             except (TypeError, ValueError):
                 return value
         return value
+
+    @staticmethod
+    def _error_detail(e) -> str:
+        """Détail éventuel porté par l'exception PyViCare (payload de réponse API)."""
+        extra = {k: v for k, v in vars(e).items() if k != "args"} if hasattr(e, "__dict__") else {}
+        return " | détail : %s" % extra if extra else ""
 
     def _set_property_blocking(self, device, feature, action, data):
         return device.service.setProperty(device.accessor, feature, action, data)
@@ -1003,7 +1012,8 @@ class Jee4Viessmann(BaseDaemon):
         except Exception as e:
             if self._handle_rate_limit(e):
                 return
-            self._logger.error("échec action %s.%s : %s: %s", feature, action, type(e).__name__, e)
+            self._logger.error("échec action %s.%s %s : %s: %s%s", feature, action, data,
+                               type(e).__name__, e, self._error_detail(e))
             self._logger.debug("trace action :\n%s", traceback.format_exc())
             return
         self._logger.info("action %s.%s OK, rafraîchissement", feature, action)

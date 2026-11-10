@@ -671,7 +671,8 @@ class jee4viessmannCmd extends cmd
         if (is_numeric($max)) {
             $v = min($v, 0 + $max);
         }
-        return $v;
+        // Entier si possible : 19.0 serait sérialisé "19.0" (rejeté si stepping entier).
+        return ($v == floor($v)) ? (int) $v : $v;
     }
 
     public function execute($_options = array())
