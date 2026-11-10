@@ -529,8 +529,8 @@ class jee4viessmann extends eqLogic
                 $cfg['init'][$id] = $cmd->execCmd();
                 if (preg_match('/_sensors_temperature_supply_value$/', $lid)) {
                     $cfg['supplyCmd'] = $id;
-                } elseif (preg_match('/_sensors_temperature_room_value$/', $lid)
-                    || preg_match('/^heating_circuits_' . $idx . '_temperature_value$/', $lid)) {
+                } elseif (preg_match('/_sensors_temperature_room_value$/', $lid)) {
+                    // Sonde d'ambiance uniquement : heating.circuits.N.temperature = eau du circuit.
                     $cfg['roomCmd'] = $id;
                 } elseif (preg_match('/_operating_programs_active_value$/', $lid)) {
                     $cfg['activeCmd'] = $id;
@@ -562,6 +562,9 @@ class jee4viessmann extends eqLogic
                     $cfg['programs'][$p]['setTempCmd'] = $id;
                     $mn = $cmd->getConfiguration('minValue', '');
                     $mx = $cmd->getConfiguration('maxValue', '');
+                    // Pas imposé par l'API (constraints.stepping) : hors pas -> VALIDATION_ERROR.
+                    $st = $cmd->getConfiguration('step', '');
+                    $cfg['programs'][$p]['step'] = (is_numeric($st) && $st > 0) ? 0 + $st : 1;
                     if (is_numeric($mn) && is_numeric($mx)) {
                         // Plage propre au programme (ex. réduit 3-37, normal 10-30) pour borner ±,
                         // et échelle du cadran = union des plages (tous les programmes y tiennent).
@@ -649,6 +652,28 @@ class jee4viessmann extends eqLogic
 
 class jee4viessmannCmd extends cmd
 {
+    /* Aligne une valeur de slider sur le pas/les bornes de l'API (stepping/min/max) : l'API
+       rejette (400 VALIDATION_ERROR) toute valeur hors pas, ex. 18.5 pour un stepping de 1. */
+    private static function snapToStep($value, $step, $min, $max)
+    {
+        if (!is_numeric($value)) {
+            return $value;
+        }
+        $v = 0 + $value;
+        $base = is_numeric($min) ? 0 + $min : 0;
+        if (is_numeric($step) && $step > 0) {
+            $v = $base + round(($v - $base) / $step) * $step;
+            $v = round($v, 4);
+        }
+        if (is_numeric($min)) {
+            $v = max($v, 0 + $min);
+        }
+        if (is_numeric($max)) {
+            $v = min($v, 0 + $max);
+        }
+        return $v;
+    }
+
     public function execute($_options = array())
     {
         if ($this->getType() != 'action') {
@@ -666,7 +691,8 @@ class jee4viessmannCmd extends cmd
         // Valeur selon le type d'action : slider (#slider#), sélecteur (#select#), sinon aucune.
         $value = null;
         if ($this->getSubType() == 'slider' && isset($_options['slider'])) {
-            $value = $_options['slider'];
+            $value = self::snapToStep($_options['slider'], $this->getConfiguration('step', ''),
+                $this->getConfiguration('minValue', ''), $this->getConfiguration('maxValue', ''));
         } elseif ($this->getSubType() == 'select' && isset($_options['select'])) {
             $value = $_options['select'];
         } elseif (isset($_options['value'])) {

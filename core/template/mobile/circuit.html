@@ -186,21 +186,25 @@
       if (typeof jeedom !== 'undefined' && jeedom.cmd && jeedom.cmd.execute) jeedom.cmd.execute({ id: id, options: options || null });
     }
 
-    $('.jee4v-minus').addEventListener('click', function () { step(-0.5); });
-    $('.jee4v-plus').addEventListener('click', function () { step(0.5); });
+    $('.jee4v-minus').addEventListener('click', function () { step(-1); });
+    $('.jee4v-plus').addEventListener('click', function () { step(1); });
 
     // Un clic = un appel API (setProperty) + un re-poll complet du device côté démon. Sans
     // anti-rebond, passer de 19 à 21,5 °C brûlait 10 requêtes sur un quota Viessmann journalier
     // très serré. On peint immédiatement, on n'envoie que la valeur finale de la rafale.
+    // d = ±1 cran ; la taille du cran = stepping imposé par l'API pour ce programme
+    // (souvent 1 °C : une valeur hors pas est rejetée en 400 VALIDATION_ERROR).
     function step(d) {
       var sp = shownProg(), P = cfg.programs[sp] || {};
+      var stp = (P.step > 0) ? P.step : 1;
       if (P.setTempCmd == null) return;   // consigne non pilotable : ne pas faire semblant
       // Rafale précédente sur un autre programme pas encore partie : on l'envoie d'abord.
       if (sendTimer && pendProg !== sp) { clearTimeout(sendTimer); flush(); }
       var lo = P.min != null ? P.min : MIN, hi = P.max != null ? P.max : MAX;
       var cur = setpointOf(sp); if (cur == null) cur = Math.min(hi, Math.max(lo, 20));
       pendProg = sp;
-      pendVal = Math.min(hi, Math.max(lo, Math.round((cur + d) * 2) / 2));
+      pendVal = Math.min(hi, Math.max(lo, lo + Math.round((cur + d * stp - lo) / stp) * stp));
+      pendVal = Math.round(pendVal * 100) / 100;
       paint(pendVal, isOn());
       if (viewProg) touchView();
       if (sendTimer) clearTimeout(sendTimer);

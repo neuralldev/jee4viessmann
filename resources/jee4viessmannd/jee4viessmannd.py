@@ -569,7 +569,7 @@ def thermostat_commands(fmap: dict):
                              "genericType": "THERMOSTAT_SET_SETPOINT",
                              "feature": active_feat, "action": cname, "param": pname,
                              "min": cons.get("min", 10), "max": cons.get("max", 30),
-                             "step": cons.get("stepping", 0.5), "link": "thermo_setpoint"})
+                             "step": cons.get("stepping", 1), "link": "thermo_setpoint"})
         if outside is not None:
             commands.append({**common, "logicalId": "thermo_outdoor", "name": "Température extérieure",
                              "cmdType": "info", "subType": "numeric", "unit": "°C",
